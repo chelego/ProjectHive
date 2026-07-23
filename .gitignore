@@ -30,3 +30,10 @@
 sysinfo.txt
 crashlytics-build.properties
 .gradle/
+
+# Local planning and handoff documents are not uploaded.
+*.md
+*.doc
+*.docx
+*.pdf
+Docs/
