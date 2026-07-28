@@ -7,6 +7,7 @@
 [Uu]ser[Ss]ettings/
 [Mm]emoryCaptures/
 [Rr]ecordings/
+[Pp]rofilerCaptures/
 
 .vs/
 .idea/
@@ -30,6 +31,15 @@
 sysinfo.txt
 crashlytics-build.properties
 .gradle/
+ExportedObj/
+Assets/AssetStoreTools*
+
+*.apk
+*.aab
+*.unitypackage
+*.tmp
+.DS_Store
+Thumbs.db
 
 # Local planning and handoff documents are not uploaded.
 *.md
