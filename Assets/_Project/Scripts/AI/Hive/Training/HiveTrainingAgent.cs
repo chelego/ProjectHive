@@ -9,9 +9,10 @@ namespace ProjectHive.AI.Hive.Training
     [DisallowMultipleComponent]
     public sealed class HiveTrainingAgent : Agent
     {
-        public const int ObservationSize = 20;
+        public const int ObservationSize = HiveDecisionObservation.ObservationSize;
         public const int CommandBranchSize = 6;
         public const int TargetBranchSize = 4;
+        public const int UnitCountBranchSize = 3;
         public const string BehaviorName = "HiveDirector";
 
         private HiveTrainingEnvironment environment;
@@ -30,22 +31,16 @@ namespace ProjectHive.AI.Hive.Training
         public override void CollectObservations(VectorSensor sensor)
         {
             environment ??= GetComponent<HiveTrainingEnvironment>();
-
-            sensor.AddObservation(environment.AlertScore);
-            sensor.AddObservation(environment.ReportConfidence);
-            sensor.AddObservation(environment.NormalizedReportAge);
-            sensor.AddObservation(environment.NormalizedReportedVelocity);
-            sensor.AddObservation(environment.ExtractionActive);
-            sensor.AddObservation(environment.NormalizedRemainingTime);
-
-            AddOneHot(sensor, (int)environment.ReportKind, 7);
-            AddOneHot(sensor, (int)environment.LastCommandKind, 6);
+            HiveDecisionObservation observation =
+                environment.CreateObservation();
+            observation.WriteTo(sensor);
         }
 
         public override void OnActionReceived(ActionBuffers actions)
         {
             int commandIndex = actions.DiscreteActions[0];
             int targetSource = actions.DiscreteActions[1];
+            int unitCountChoice = actions.DiscreteActions[2];
             HiveCommandKind command = (HiveCommandKind)Mathf.Clamp(
                 commandIndex,
                 0,
@@ -54,6 +49,7 @@ namespace ProjectHive.AI.Hive.Training
             float reward = environment.SimulateDecision(
                 command,
                 targetSource,
+                ResolveRequestedUnitCount(unitCountChoice),
                 out bool episodeEnded);
             AddReward(reward);
 
@@ -69,12 +65,20 @@ namespace ProjectHive.AI.Hive.Training
                           environment.ReportKind == EnemyReportKind.ExtractionActivity
                 ? 2
                 : 0;
+            discrete[2] = environment.GetHeuristicUnitCountChoice();
         }
 
-        private static void AddOneHot(VectorSensor sensor, int value, int count)
+        public static int ResolveRequestedUnitCount(int choice)
         {
-            for (int index = 0; index < count; index++)
-                sensor.AddObservation(index == value ? 1f : 0f);
+            switch (Mathf.Clamp(choice, 0, UnitCountBranchSize - 1))
+            {
+                case 0:
+                    return 1;
+                case 1:
+                    return 3;
+                default:
+                    return 5;
+            }
         }
     }
 }

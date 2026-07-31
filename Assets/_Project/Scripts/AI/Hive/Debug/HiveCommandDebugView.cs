@@ -8,6 +8,8 @@ namespace ProjectHive.AI.Hive.Debugging
     {
         [SerializeField] private GameEventBus eventBus;
         [SerializeField] private HiveDirector hiveDirector;
+        [SerializeField] private HiveUnitRegistry unitRegistry;
+        [SerializeField] private HiveCommandDispatcher commandDispatcher;
         [SerializeField] private bool showOverlay = true;
         [SerializeField] private bool drawGizmos = true;
 
@@ -25,10 +27,16 @@ namespace ProjectHive.AI.Hive.Debugging
         public EnemyReport LastReport => lastReport;
         public HiveCommand LastCommand => lastCommand;
 
-        public void Configure(GameEventBus bus, HiveDirector director)
+        public void Configure(
+            GameEventBus bus,
+            HiveDirector director,
+            HiveUnitRegistry registry,
+            HiveCommandDispatcher dispatcher)
         {
             eventBus = bus;
             hiveDirector = director;
+            unitRegistry = registry;
+            commandDispatcher = dispatcher;
         }
 
         private void OnEnable()
@@ -51,12 +59,10 @@ namespace ProjectHive.AI.Hive.Debugging
 
         private void OnNoise(in NoiseEvent noiseEvent)
         {
-            lastReport = new EnemyReport(
-                EnemyReportKind.Noise,
-                noiseEvent.Position,
-                Mathf.Clamp01(noiseEvent.Loudness),
-                noiseEvent.SourceInstanceId,
-                noiseEvent.OccurredAt);
+            if (!HiveReportFactory.TryCreateFromNoise(in noiseEvent, out EnemyReport report))
+                return;
+
+            lastReport = report;
             hasReport = true;
             reportCount++;
         }
@@ -78,16 +84,32 @@ namespace ProjectHive.AI.Hive.Debugging
                 : null;
             float alert = blackboard != null ? blackboard.AlertScore : 0f;
 
-            GUILayout.BeginArea(new Rect(16f, 16f, 420f, 180f), GUI.skin.box);
+            GUILayout.BeginArea(new Rect(16f, 16f, 460f, 220f), GUI.skin.box);
             GUILayout.Label("HIVE SANDBOX");
             GUILayout.Label($"Reports: {reportCount}  Commands: {commandCount}");
             GUILayout.Label($"Alert: {alert:0.00}");
+            GUILayout.Label(
+                $"Units: {(unitRegistry != null ? unitRegistry.RegisteredCount : 0)}  " +
+                $"Assigned Total: " +
+                $"{(commandDispatcher != null ? commandDispatcher.TotalAssignmentsAccepted : 0)}");
             GUILayout.Label(hasReport
-                ? $"Last Report: {lastReport.Kind} / Confidence {lastReport.Confidence:0.00}"
+                ? $"Last Report: {lastReport.Kind} / {lastReport.Source} / " +
+                  $"Confidence {lastReport.Confidence:0.00} / " +
+                  $"Uncertainty {lastReport.UncertaintyRadius:0.0}m"
                 : "Last Report: none");
             GUILayout.Label(hasCommand
-                ? $"Last Command: {lastCommand.Kind} / Priority {lastCommand.Priority:0.00}"
+                ? $"Last Command: {lastCommand.Kind} / " +
+                  $"Units {lastCommand.RequestedUnitCount} / " +
+                  $"Priority {lastCommand.Priority:0.00}"
                 : "Last Command: none");
+            if (commandDispatcher != null)
+            {
+                HiveDispatchResult dispatch = commandDispatcher.LastResult;
+                GUILayout.Label(
+                    $"Last Dispatch: considered {dispatch.CandidatesConsidered}, " +
+                    $"accepted {dispatch.AssignmentsAccepted}, " +
+                    $"rejected {dispatch.AssignmentsRejected}");
+            }
             GUILayout.EndArea();
         }
 
@@ -117,6 +139,10 @@ namespace ProjectHive.AI.Hive.Debugging
                 eventBus = GameEventBus.Instance;
             if (hiveDirector == null)
                 hiveDirector = FindFirstObjectByType<HiveDirector>();
+            if (unitRegistry == null)
+                unitRegistry = FindFirstObjectByType<HiveUnitRegistry>();
+            if (commandDispatcher == null)
+                commandDispatcher = FindFirstObjectByType<HiveCommandDispatcher>();
         }
 
         private void Subscribe()

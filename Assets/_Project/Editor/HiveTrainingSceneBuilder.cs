@@ -70,10 +70,6 @@ namespace ProjectHive.Editor
                 0f,
                 (index / 4) * 50f);
 
-            root.AddComponent<HiveTrainingEnvironment>();
-            HiveTrainingAgent agent = root.AddComponent<HiveTrainingAgent>();
-            agent.MaxStep = 320;
-
             BehaviorParameters behavior = root.AddComponent<BehaviorParameters>();
             behavior.BehaviorName = HiveTrainingAgent.BehaviorName;
             behavior.BehaviorType = BehaviorType.Default;
@@ -81,7 +77,12 @@ namespace ProjectHive.Editor
             behavior.BrainParameters.NumStackedVectorObservations = 1;
             behavior.BrainParameters.ActionSpec = ActionSpec.MakeDiscrete(
                 HiveTrainingAgent.CommandBranchSize,
-                HiveTrainingAgent.TargetBranchSize);
+                HiveTrainingAgent.TargetBranchSize,
+                HiveTrainingAgent.UnitCountBranchSize);
+
+            root.AddComponent<HiveTrainingEnvironment>();
+            HiveTrainingAgent agent = root.AddComponent<HiveTrainingAgent>();
+            agent.MaxStep = 320;
 
             DecisionRequester requester = root.AddComponent<DecisionRequester>();
             requester.DecisionPeriod = 1;

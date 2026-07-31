@@ -93,28 +93,58 @@ namespace ProjectHive.AI.Hive.Debugging
 
             if (kind == EnemyReportKind.Noise)
             {
+                bool wildlifeAlarm =
+                    (sequenceIndex / ReportSequence.Length) % 2 == 1;
                 NoiseEvent noiseEvent = new NoiseEvent(
                     position,
                     confidence,
                     patternRadius,
-                    NoiseCategory.Gunshot,
-                    NoiseAffiliation.Player,
+                    wildlifeAlarm ? 6f : 1f,
+                    wildlifeAlarm
+                        ? NoiseCategory.WildlifeAlarm
+                        : NoiseCategory.Gunshot,
+                    wildlifeAlarm
+                        ? NoiseAffiliation.Environment
+                        : NoiseAffiliation.Player,
                     gameObject.GetInstanceID(),
                     occurredAt);
                 eventBus.PublishNoise(in noiseEvent);
             }
             else
             {
+                EnemyReportSource source = ResolveSource(kind);
+                float uncertaintyRadius = kind == EnemyReportKind.LostTarget
+                    ? 8f
+                    : 1f;
                 EnemyReport report = new EnemyReport(
                     kind,
                     position,
                     confidence,
+                    uncertaintyRadius,
+                    source,
                     gameObject.GetInstanceID(),
                     occurredAt);
                 eventBus.PublishEnemyReport(in report);
             }
 
             sequenceIndex++;
+        }
+
+        private static EnemyReportSource ResolveSource(EnemyReportKind kind)
+        {
+            switch (kind)
+            {
+                case EnemyReportKind.SpotterContact:
+                    return EnemyReportSource.Spotter;
+                case EnemyReportKind.ExtractionActivity:
+                    return EnemyReportSource.ExtractionSystem;
+                case EnemyReportKind.VisualContact:
+                case EnemyReportKind.LostTarget:
+                case EnemyReportKind.TargetDown:
+                    return EnemyReportSource.Monster;
+                default:
+                    return EnemyReportSource.Unknown;
+            }
         }
 
         private void ResolveServices()
