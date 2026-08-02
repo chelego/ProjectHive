@@ -18,6 +18,11 @@ namespace ProjectHive.Data.Items
         SlotOccupied = 3,
         CapacityReached = 4,
         StackLimitReached = 5,
-        Restricted = 6
+        Restricted = 6,
+        ContainerNotFound = 7,
+        SourceEmpty = 8,
+        InsufficientAmount = 9,
+        ItemNotAllowed = 10,
+        SameSlot = 11
     }
 }
