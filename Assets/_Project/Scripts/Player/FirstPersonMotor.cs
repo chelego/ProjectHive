@@ -51,6 +51,8 @@ namespace ProjectHive.Player
         [SerializeField] private float mantleLandingForwardOffset = 0.45f;
         [SerializeField] private float vaultDuration = 0.32f;
         [SerializeField] private float mantleDuration = 0.55f;
+        [SerializeField] private float sprintParkourDurationMultiplier = 0.75f;
+        [SerializeField] private float walkParkourDurationMultiplier = 1.2f;
         [SerializeField] private float vaultArcHeight = 0.55f;
         [SerializeField] private float windowSillMaxHeight = 1.45f;
         [SerializeField] private float windowPassThroughForwardOffset = 1.45f;
@@ -154,7 +156,7 @@ namespace ProjectHive.Player
                 lastJumpPressedTime = Time.time;
 
             bool wantsSprint = CanSprint(input, sprintHeld);
-            if (jumpPressed && grounded && TryStartParkour())
+            if (jumpPressed && grounded && TryStartParkour(wantsSprint))
                 return;
 
             if (CanStartSlide(grounded, crouchPressed, wantsSprint))
@@ -265,7 +267,7 @@ namespace ProjectHive.Player
             horizontalVelocity = slideVelocity;
         }
 
-        private bool TryStartParkour()
+        private bool TryStartParkour(bool sprintingIntoParkour)
         {
             if (IsCrouching || controller == null)
                 return false;
@@ -277,7 +279,7 @@ namespace ProjectHive.Player
             if (frontHit.collider.transform == transform || frontHit.collider.transform.IsChildOf(transform))
                 return false;
 
-            if (TryStartWindowPassage(frontHit, forward))
+            if (TryStartWindowPassage(frontHit, forward, sprintingIntoParkour))
                 return true;
 
             if (!TryFindObstacleTop(frontHit, forward, out RaycastHit topHit))
@@ -292,7 +294,7 @@ namespace ProjectHive.Player
                 HasStandingClearance(vaultLanding, frontHit.collider))
             {
                 float arcHeight = Mathf.Max(vaultArcHeight, obstacleHeight + 0.25f);
-                StartParkour(PlayerMoveState.Vault, vaultLanding, vaultDuration, arcHeight, false);
+                StartParkour(PlayerMoveState.Vault, vaultLanding, GetParkourDuration(vaultDuration, sprintingIntoParkour), arcHeight, false);
                 return true;
             }
 
@@ -302,7 +304,7 @@ namespace ProjectHive.Player
                 mantleLanding.y += landingClearance;
                 if (HasStandingClearance(mantleLanding, frontHit.collider))
                 {
-                    StartParkour(PlayerMoveState.Mantle, mantleLanding, mantleDuration, 0f, false);
+                    StartParkour(PlayerMoveState.Mantle, mantleLanding, GetParkourDuration(mantleDuration, sprintingIntoParkour), 0f, false);
                     return true;
                 }
             }
@@ -310,7 +312,7 @@ namespace ProjectHive.Player
             return false;
         }
 
-        private bool TryStartWindowPassage(RaycastHit frontHit, Vector3 forward)
+        private bool TryStartWindowPassage(RaycastHit frontHit, Vector3 forward, bool sprintingIntoParkour)
         {
             ParkourPrototypeObstacle window = frontHit.collider.GetComponentInParent<ParkourPrototypeObstacle>();
             if (window == null || window.Kind != ParkourPrototypeObstacleKind.WindowPassage)
@@ -331,8 +333,14 @@ namespace ProjectHive.Player
                 return false;
 
             float arcHeight = Mathf.Clamp(sillHeight + 0.05f, 0.35f, vaultArcHeight);
-            StartParkour(PlayerMoveState.Vault, landing, windowPassThroughDuration, arcHeight, true);
+            StartParkour(PlayerMoveState.Vault, landing, GetParkourDuration(windowPassThroughDuration, sprintingIntoParkour), arcHeight, true);
             return true;
+        }
+
+        private float GetParkourDuration(float baseDuration, bool sprintingIntoParkour)
+        {
+            float multiplier = sprintingIntoParkour ? sprintParkourDurationMultiplier : walkParkourDurationMultiplier;
+            return baseDuration * multiplier;
         }
 
         private static Collider FindWindowSill(Transform root)
@@ -664,6 +672,8 @@ namespace ProjectHive.Player
             mantleLandingForwardOffset = Mathf.Max(0.05f, mantleLandingForwardOffset);
             vaultDuration = Mathf.Max(0.01f, vaultDuration);
             mantleDuration = Mathf.Max(0.01f, mantleDuration);
+            sprintParkourDurationMultiplier = Mathf.Max(0.01f, sprintParkourDurationMultiplier);
+            walkParkourDurationMultiplier = Mathf.Max(0.01f, walkParkourDurationMultiplier);
             vaultArcHeight = Mathf.Max(0f, vaultArcHeight);
             windowSillMaxHeight = Mathf.Max(vaultMaxHeight, windowSillMaxHeight);
             windowPassThroughForwardOffset = Mathf.Max(0.1f, windowPassThroughForwardOffset);
