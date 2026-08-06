@@ -51,8 +51,8 @@ namespace ProjectHive.Player
         [SerializeField] private float mantleLandingForwardOffset = 0.45f;
         [SerializeField] private float vaultDuration = 0.32f;
         [SerializeField] private float mantleDuration = 0.55f;
-        [SerializeField] private float sprintParkourDurationMultiplier = 0.75f;
-        [SerializeField] private float walkParkourDurationMultiplier = 1.2f;
+        [SerializeField] private float sprintParkourDurationMultiplier = 0.6f;
+        [SerializeField] private float walkParkourDurationMultiplier = 1.35f;
         [SerializeField] private float vaultArcHeight = 0.55f;
         [SerializeField] private float windowSillMaxHeight = 1.45f;
         [SerializeField] private float windowPassThroughForwardOffset = 1.45f;
