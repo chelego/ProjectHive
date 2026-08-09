@@ -1,0 +1,41 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d0a3e5bcf155748449100c144c24265b, type: 3}
+  m_Name: BreckenAISettings
+  m_EditorClassIdentifier: Assembly-CSharp::ProjectHive.AI.Mob.MobAISettings
+  bothSideSightsAngle: 110
+  upSightAngle: 30
+  downSightAngle: 45
+  horizontalHeadTurnAngle: 90
+  verticalHeadTurnAngle: 60
+  sightDistance: 15
+  sightBlockMask:
+    serializedVersion: 2
+    m_Bits: 1024
+  eyeHeight: 2
+  headTurnSpeed: 120
+  bodyTurnSpeed: 90
+  patrolRadius: 15
+  patrolSpeed: 3
+  waitingTimeAfterPatrolPoint: 3
+  patrolHeadSweepAngle: 180
+  patrolHeadSweepSpeed: 90
+  bodyFollowRatio: 0.2
+  alertMax: 3
+  alertDecreaseSpeed: 1
+  alertIncreaseSpeed: 3
+  destinationUpdateThreshold: 0.5
+  lostSightDuration: 10
+  chaseSpeed: 6
+  requestPathTickInterval: 0.1
+  judgeTickInterval: 0.1
+  perceptionTickInterval: 0.1
