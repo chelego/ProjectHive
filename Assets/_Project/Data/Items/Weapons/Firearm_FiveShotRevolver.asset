@@ -1,0 +1,29 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 508e0df5f3864e31a579806d6d22f7a8, type: 3}
+  m_Name: Firearm_FiveShotRevolver
+  m_EditorClassIdentifier: Assembly-CSharp::ProjectHive.Combat.FirearmDefinition
+  weaponItemId: weapon.firearm.five_shot_revolver
+  displayName: Five-Shot Revolver
+  feedType: 2
+  visualProfile: 1
+  displayColor: {r: 0.36, g: 0.29, b: 0.18, a: 1}
+  damage: 48
+  fireRate: 2.2
+  maxDistance: 110
+  fullDamageDistance: 28
+  minimumDamageMultiplier: 0.4
+  spreadDegrees: 0.03
+  magazineCapacity: 0
+  cylinderCapacity: 5
+  gunshotLoudness: 1.15
+  gunshotRadius: 65

@@ -1,0 +1,29 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 508e0df5f3864e31a579806d6d22f7a8, type: 3}
+  m_Name: Firearm_ServicePistol
+  m_EditorClassIdentifier: Assembly-CSharp::ProjectHive.Combat.FirearmDefinition
+  weaponItemId: weapon.firearm.service_pistol
+  displayName: Service Pistol
+  feedType: 1
+  visualProfile: 0
+  displayColor: {r: 0.08, g: 0.1, b: 0.12, a: 1}
+  damage: 32
+  fireRate: 4.5
+  maxDistance: 95
+  fullDamageDistance: 22
+  minimumDamageMultiplier: 0.35
+  spreadDegrees: 0.05
+  magazineCapacity: 10
+  cylinderCapacity: 5
+  gunshotLoudness: 1
+  gunshotRadius: 55

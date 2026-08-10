@@ -31,14 +31,26 @@ namespace ProjectHive.Player
 
         private void Update()
         {
-            if (Mouse.current == null)
+            if (Mouse.current != null)
+            {
+                if (Mouse.current.leftButton.wasPressedThisFrame)
+                    Fire();
+
+                if (Mouse.current.rightButton.wasPressedThisFrame)
+                    MeleeOrAssassinate();
+            }
+
+            if (Keyboard.current == null)
                 return;
 
-            if (Mouse.current.leftButton.wasPressedThisFrame)
-                Fire();
+            if (Keyboard.current.digit1Key.wasPressedThisFrame)
+                EquipFirearmSlot(1);
 
-            if (Mouse.current.rightButton.wasPressedThisFrame)
-                MeleeOrAssassinate();
+            if (Keyboard.current.digit2Key.wasPressedThisFrame)
+                EquipFirearmSlot(2);
+
+            if (Keyboard.current.rKey.wasPressedThisFrame)
+                ReloadFirearm();
         }
 
         public void Fire()
@@ -68,6 +80,16 @@ namespace ProjectHive.Player
 
             meleeWeapon.TryAttack(gameObject, origin, forward, out RaycastHit hit);
             LastWeaponHit = hit;
+        }
+
+        public void ReloadFirearm()
+        {
+            firearm?.TryReload();
+        }
+
+        public void EquipFirearmSlot(int slotNumber)
+        {
+            firearm?.TryEquipLoadoutSlot(slotNumber);
         }
 
         private bool ShouldTryAssassination()
