@@ -106,7 +106,11 @@ namespace ProjectHive.AI.Hive
                     break;
             }
 
-            return baseIncrease * Mathf.Lerp(0.35f, 1f, report.Confidence);
+            float uncertaintyReliability =
+                1f / (1f + report.UncertaintyRadius * 0.05f);
+            return baseIncrease *
+                   Mathf.Lerp(0.35f, 1f, report.Confidence) *
+                   uncertaintyReliability;
         }
     }
 }
