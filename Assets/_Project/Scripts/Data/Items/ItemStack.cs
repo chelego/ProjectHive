@@ -18,6 +18,13 @@ namespace ProjectHive.Data.Items
         public ItemDefinition Definition => definition;
         public int Amount => amount;
         public bool IsEmpty => definition == null || amount <= 0;
-        public float TotalWeight => definition == null ? 0f : definition.Weight * amount;
+
+        public bool CanMergeWith(in ItemStack other)
+        {
+            return !IsEmpty &&
+                   !other.IsEmpty &&
+                   definition == other.definition &&
+                   amount < definition.MaximumStack;
+        }
     }
 }
