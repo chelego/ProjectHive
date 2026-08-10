@@ -14,17 +14,21 @@ namespace ProjectHive.UI
 
         private void Start()
         {
-            raidClock.OnTimeUpdated += UpdateTimeDisplay;
-            raidClock.OnTimeExpired += ActivateSunlight;
+            raidClock.ClockChanged += OnClockChanged;
         }
 
-        private void UpdateTimeDisplay(float elapsedSeconds)
+        private void OnDestroy()
         {
-            // Map 0-10s to 11pm (23:00) - 6am (06:00)
-            float totalMinutes = (elapsedSeconds / 10f) * 7f * 60f;
-            int hours = (23 + (int)(totalMinutes / 60f)) % 24;
-            int minutes = (int)(totalMinutes % 60f);
-            timeText.text = $"{hours:00}:{minutes:00}";
+            if (raidClock != null)
+                raidClock.ClockChanged -= OnClockChanged;
+        }
+
+        private void OnClockChanged(RaidClockSnapshot snapshot)
+        {
+            timeText.text = $"{snapshot.WorldHour:00}:{snapshot.WorldMinute:00}";
+
+            if (snapshot.IsExpired)
+                ActivateSunlight();
         }
 
         private void ActivateSunlight()
