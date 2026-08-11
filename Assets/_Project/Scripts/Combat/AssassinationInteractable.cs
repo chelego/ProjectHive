@@ -1,4 +1,5 @@
 using ProjectHive.Core.Contracts;
+using ProjectHive.Player;
 using UnityEngine;
 
 namespace ProjectHive.Combat
@@ -8,10 +9,9 @@ namespace ProjectHive.Combat
     public sealed class AssassinationInteractable : MonoBehaviour, IInteractable
     {
         [SerializeField] private string prompt = "Assassinate";
-        [SerializeField] private float damage = 999f;
+        [SerializeField] private float minimumLethalDamage = 999f;
         [SerializeField] private float maxDistance = 1.8f;
         [SerializeField] private float rearAngle = 80f;
-        [SerializeField] private bool requireBehindTarget = true;
 
         private Health health;
 
@@ -31,9 +31,6 @@ namespace ProjectHive.Combat
             if (toTarget.sqrMagnitude > maxDistance * maxDistance)
                 return false;
 
-            if (!requireBehindTarget)
-                return true;
-
             return IsInteractorBehind(context.Origin);
         }
 
@@ -43,13 +40,19 @@ namespace ProjectHive.Combat
                 return;
 
             Vector3 direction = transform.position - context.Origin;
+            float damage = health != null ? Mathf.Max(minimumLethalDamage, health.CurrentHealth) : minimumLethalDamage;
             DamageData damageData = new DamageData(
                 damage,
                 DamageKind.Assassination,
+                DamageHitZone.Head,
+                DamageFlags.BypassArmor | DamageFlags.Critical,
                 transform.position + Vector3.up,
                 direction,
                 context.Interactor);
             health.ApplyDamage(in damageData);
+
+            PlayerCombatController combatController = context.Interactor.GetComponent<PlayerCombatController>();
+            combatController?.PlayAssassinationMotion(gameObject);
         }
 
         private bool IsInteractorBehind(Vector3 interactorPosition)
@@ -66,7 +69,7 @@ namespace ProjectHive.Combat
 
         private void OnValidate()
         {
-            damage = Mathf.Max(0f, damage);
+            minimumLethalDamage = Mathf.Max(0f, minimumLethalDamage);
             maxDistance = Mathf.Max(0.1f, maxDistance);
             rearAngle = Mathf.Clamp(rearAngle, 1f, 180f);
         }

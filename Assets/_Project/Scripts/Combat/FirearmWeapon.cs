@@ -68,6 +68,7 @@ namespace ProjectHive.Combat
         private Material runtimeMagazineMaterial;
         private Material runtimeCartridgeMaterial;
         private FirearmAmmoState[] loadoutAmmoStates;
+        private bool viewModelVisible = true;
 
         public bool CanFire => Time.time >= nextFireTime;
         public int EquippedLoadoutIndex => equippedLoadoutIndex;
@@ -106,6 +107,13 @@ namespace ProjectHive.Combat
         public bool TryEquipLoadoutSlot(int slotNumber)
         {
             return EquipLoadoutIndex(slotNumber - 1, false);
+        }
+
+        public void SetViewModelVisible(bool visible)
+        {
+            viewModelVisible = visible;
+            if (generatedVisualRoot != null)
+                generatedVisualRoot.SetActive(visible);
         }
 
         public bool EquipLoadoutIndex(int index, bool force)
@@ -545,6 +553,8 @@ namespace ProjectHive.Combat
                 BuildPistolViewModel(generatedVisualRoot.transform);
                 BuildReloadHand(generatedVisualRoot.transform, false);
             }
+
+            generatedVisualRoot.SetActive(viewModelVisible);
         }
 
         private void AnimateViewModel()

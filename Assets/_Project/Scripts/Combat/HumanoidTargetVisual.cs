@@ -11,8 +11,10 @@ namespace ProjectHive.Combat
         [SerializeField] private bool rebuildInEditMode = true;
         [SerializeField] private Material bodyMaterial;
         [SerializeField] private Material headMaterial;
+        [SerializeField] private Material eyeMaterial;
         [SerializeField] private Color bodyColor = new Color(0.18f, 0.32f, 0.72f, 1f);
         [SerializeField] private Color headColor = new Color(0.86f, 0.74f, 0.56f, 1f);
+        [SerializeField] private Color eyeColor = new Color(0.02f, 0.018f, 0.014f, 1f);
         [SerializeField, Min(1f)] private float headDamageMultiplier = 2f;
 
         private const string GeneratedRootName = "Generated Humanoid Target";
@@ -40,6 +42,7 @@ namespace ProjectHive.Combat
 
             Material body = CreateRuntimeMaterial(bodyMaterial, bodyColor);
             Material head = CreateRuntimeMaterial(headMaterial, headColor);
+            Material eye = CreateRuntimeMaterial(eyeMaterial, eyeColor);
 
             GameObject bodyObject = AddPart(
                 root.transform,
@@ -61,6 +64,23 @@ namespace ProjectHive.Combat
                 headObject,
                 Core.Contracts.DamageHitZone.Head,
                 headDamageMultiplier);
+
+            AddPart(
+                root.transform,
+                "Left Eye Front Marker",
+                PrimitiveType.Sphere,
+                new Vector3(-0.095f, 0.98f, 0.205f),
+                new Vector3(0.07f, 0.07f, 0.035f),
+                eye,
+                false);
+            AddPart(
+                root.transform,
+                "Right Eye Front Marker",
+                PrimitiveType.Sphere,
+                new Vector3(0.095f, 0.98f, 0.205f),
+                new Vector3(0.07f, 0.07f, 0.035f),
+                eye,
+                false);
         }
 
         private void ClearGenerated()
@@ -105,7 +125,8 @@ namespace ProjectHive.Combat
             PrimitiveType primitiveType,
             Vector3 localPosition,
             Vector3 localScale,
-            Material material)
+            Material material,
+            bool enableCollider = true)
         {
             GameObject part = GameObject.CreatePrimitive(primitiveType);
             part.name = partName;
@@ -116,6 +137,10 @@ namespace ProjectHive.Combat
             Renderer renderer = part.GetComponent<Renderer>();
             if (renderer != null)
                 renderer.sharedMaterial = material;
+
+            Collider collider = part.GetComponent<Collider>();
+            if (collider != null)
+                collider.enabled = enableCollider;
 
             return part;
         }
