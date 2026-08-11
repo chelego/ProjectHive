@@ -6,7 +6,7 @@ namespace ProjectHive.Combat
     [DisallowMultipleComponent]
     public sealed class AssassinationAttack : MonoBehaviour
     {
-        [SerializeField] private float damage = 999f;
+        [SerializeField] private float minimumLethalDamage = 999f;
         [SerializeField] private float range = 1.6f;
         [SerializeField] private float radius = 0.35f;
         [SerializeField] private float rearAngle = 70f;
@@ -29,9 +29,16 @@ namespace ProjectHive.Combat
             if (!IsBehindTarget(origin, target.transform))
                 return false;
 
+            float damage = minimumLethalDamage;
+            Health health = target.GetComponent<Health>();
+            if (health != null)
+                damage = Mathf.Max(damage, health.CurrentHealth);
+
             DamageData damageData = new DamageData(
                 damage,
                 DamageKind.Assassination,
+                DamageHitZone.Head,
+                DamageFlags.BypassArmor | DamageFlags.Critical,
                 hit.point,
                 direction,
                 owner);
@@ -53,7 +60,7 @@ namespace ProjectHive.Combat
 
         private void OnValidate()
         {
-            damage = Mathf.Max(0f, damage);
+            minimumLethalDamage = Mathf.Max(0f, minimumLethalDamage);
             range = Mathf.Max(0.1f, range);
             radius = Mathf.Max(0.01f, radius);
             rearAngle = Mathf.Clamp(rearAngle, 1f, 180f);

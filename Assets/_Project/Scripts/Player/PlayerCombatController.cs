@@ -1,9 +1,16 @@
 using ProjectHive.Combat;
+using ProjectHive.Core.Contracts;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
 namespace ProjectHive.Player
 {
+    public enum PlayerEquippedWeaponCategory
+    {
+        Firearm = 0,
+        Melee = 1
+    }
+
     [DisallowMultipleComponent]
     public sealed class PlayerCombatController : MonoBehaviour
     {
@@ -11,7 +18,9 @@ namespace ProjectHive.Player
         [SerializeField] private FirearmWeapon firearm;
         [SerializeField] private MeleeWeapon meleeWeapon;
         [SerializeField] private AssassinationAttack assassinationAttack;
-        [SerializeField] private bool preferAssassinationWhenCrouched = true;
+        [SerializeField] private PlayerMeleeViewModel meleeViewModel;
+
+        private PlayerEquippedWeaponCategory equippedCategory = PlayerEquippedWeaponCategory.Firearm;
 
         public RaycastHit LastWeaponHit { get; private set; }
         public GameObject LastAssassinationTarget { get; private set; }
@@ -27,6 +36,20 @@ namespace ProjectHive.Player
                 meleeWeapon = GetComponentInChildren<MeleeWeapon>();
             if (assassinationAttack == null)
                 assassinationAttack = GetComponentInChildren<AssassinationAttack>();
+            if (meleeViewModel == null)
+                meleeViewModel = GetComponentInChildren<PlayerMeleeViewModel>();
+
+            if (meleeWeapon == null)
+                meleeWeapon = gameObject.AddComponent<MeleeWeapon>();
+            if (assassinationAttack == null)
+                assassinationAttack = gameObject.AddComponent<AssassinationAttack>();
+            if (meleeViewModel == null)
+                meleeViewModel = gameObject.AddComponent<PlayerMeleeViewModel>();
+
+            if (viewCamera != null)
+                meleeWeapon.SetAttackOrigin(viewCamera.transform);
+
+            EquipFirearmSlot(1);
         }
 
         private void Update()
@@ -34,10 +57,10 @@ namespace ProjectHive.Player
             if (Mouse.current != null)
             {
                 if (Mouse.current.leftButton.wasPressedThisFrame)
-                    Fire();
+                    PrimaryAttack();
 
                 if (Mouse.current.rightButton.wasPressedThisFrame)
-                    MeleeOrAssassinate();
+                    TryAssassinateOnly();
             }
 
             if (Keyboard.current == null)
@@ -49,56 +72,100 @@ namespace ProjectHive.Player
             if (Keyboard.current.digit2Key.wasPressedThisFrame)
                 EquipFirearmSlot(2);
 
+            if (Keyboard.current.digit3Key.wasPressedThisFrame)
+                EquipMelee(MeleeWeaponKind.Knife);
+
+            if (Keyboard.current.digit4Key.wasPressedThisFrame)
+                EquipMelee(MeleeWeaponKind.Warhammer);
+
             if (Keyboard.current.rKey.wasPressedThisFrame)
                 ReloadFirearm();
         }
 
         public void Fire()
         {
-            if (firearm == null)
+            if (equippedCategory != PlayerEquippedWeaponCategory.Firearm || firearm == null)
                 return;
 
             firearm.TryFire(gameObject, GetOrigin(), GetForward(), out RaycastHit hit);
             LastWeaponHit = hit;
         }
 
-        public void MeleeOrAssassinate()
+        public void PrimaryAttack()
         {
-            Vector3 origin = GetOrigin();
-            Vector3 forward = GetForward();
-
-            if (ShouldTryAssassination() &&
-                assassinationAttack != null &&
-                assassinationAttack.TryAssassinate(gameObject, origin, forward, out GameObject target))
+            if (equippedCategory == PlayerEquippedWeaponCategory.Firearm)
             {
-                LastAssassinationTarget = target;
+                Fire();
                 return;
             }
 
-            if (meleeWeapon == null)
+            MeleeAttack();
+        }
+
+        public void MeleeAttack()
+        {
+            if (equippedCategory != PlayerEquippedWeaponCategory.Melee || meleeWeapon == null)
                 return;
 
-            meleeWeapon.TryAttack(gameObject, origin, forward, out RaycastHit hit);
+            Vector3 origin = GetOrigin();
+            Vector3 forward = GetForward();
+
+            if (meleeWeapon.TryAttack(gameObject, origin, forward, out RaycastHit hit))
+                meleeViewModel?.PlayAttack(meleeWeapon.EquippedKind);
+
             LastWeaponHit = hit;
+        }
+
+        public void TryAssassinateOnly()
+        {
+            if (equippedCategory != PlayerEquippedWeaponCategory.Melee || assassinationAttack == null)
+                return;
+
+            if (!assassinationAttack.TryAssassinate(gameObject, GetOrigin(), GetForward(), out GameObject target))
+                return;
+
+            LastAssassinationTarget = target;
+            PlayAssassinationMotion(target);
         }
 
         public void ReloadFirearm()
         {
+            if (equippedCategory != PlayerEquippedWeaponCategory.Firearm)
+                return;
+
             firearm?.TryReload();
         }
 
         public void EquipFirearmSlot(int slotNumber)
         {
+            equippedCategory = PlayerEquippedWeaponCategory.Firearm;
             firearm?.TryEquipLoadoutSlot(slotNumber);
+            firearm?.SetViewModelVisible(true);
+            meleeViewModel?.SetVisible(false);
         }
 
-        private bool ShouldTryAssassination()
+        public void EquipMelee(MeleeWeaponKind kind)
         {
-            if (!preferAssassinationWhenCrouched)
-                return true;
+            equippedCategory = PlayerEquippedWeaponCategory.Melee;
+            meleeWeapon?.Equip(kind);
+            meleeViewModel?.Equip(kind);
+            meleeViewModel?.SetVisible(true);
+            firearm?.SetViewModelVisible(false);
+        }
 
-            FirstPersonMotor motor = GetComponent<FirstPersonMotor>();
-            return motor == null || motor.IsCrouching;
+        public void PlayAssassinationMotion(GameObject target = null)
+        {
+            MeleeWeaponKind kind = meleeWeapon != null ? meleeWeapon.EquippedKind : MeleeWeaponKind.Knife;
+            meleeViewModel?.PlayAssassination(kind);
+
+            if (target == null)
+                return;
+
+            AssassinationExecutionMotion executionMotion = target.GetComponent<AssassinationExecutionMotion>();
+            if (executionMotion == null)
+                executionMotion = target.AddComponent<AssassinationExecutionMotion>();
+
+            executionMotion.Play(kind, transform);
         }
 
         private Vector3 GetOrigin()

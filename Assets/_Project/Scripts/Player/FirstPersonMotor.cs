@@ -1,3 +1,5 @@
+using System;
+using ProjectHive.Core.Contracts;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -5,7 +7,7 @@ namespace ProjectHive.Player
 {
     [RequireComponent(typeof(CharacterController))]
     [DisallowMultipleComponent]
-    public sealed class FirstPersonMotor : MonoBehaviour
+    public sealed class FirstPersonMotor : MonoBehaviour, ILocomotionStateProvider
     {
         [Header("View")]
         [SerializeField] private Transform cameraRoot;
@@ -83,6 +85,8 @@ namespace ProjectHive.Player
         public bool IsSliding => MoveState == PlayerMoveState.Slide;
         public bool IsParkouring => MoveState == PlayerMoveState.Vault || MoveState == PlayerMoveState.Mantle;
         public Vector3 Velocity => controller != null ? controller.velocity : Vector3.zero;
+        public PlayerLocomotionState LocomotionState => ToLocomotionState(MoveState);
+        public event Action<LocomotionStateChange> LocomotionStateChanged;
 
         private void Awake()
         {
@@ -261,7 +265,7 @@ namespace ProjectHive.Player
                 ? (transform.right * input.x + transform.forward * input.y).normalized
                 : transform.forward;
 
-            MoveState = PlayerMoveState.Slide;
+            SetMoveState(PlayerMoveState.Slide);
             slideTimeRemaining = slideDuration;
             slideVelocity = forward * Mathf.Max(slideStartSpeed, horizontalVelocity.magnitude);
             horizontalVelocity = slideVelocity;
@@ -481,7 +485,7 @@ namespace ProjectHive.Player
 
         private void StartParkour(PlayerMoveState state, Vector3 targetPosition, float duration, float arcHeight, bool ignoreControllerCollision)
         {
-            MoveState = state;
+            SetMoveState(state);
             parkourElapsed = 0f;
             parkourDuration = Mathf.Max(0.01f, duration);
             parkourArcHeight = Mathf.Max(0f, arcHeight);
@@ -522,7 +526,7 @@ namespace ProjectHive.Player
             if (parkourIgnoresControllerCollision)
                 controller.enabled = true;
 
-            MoveState = controller.isGrounded ? PlayerMoveState.Grounded : PlayerMoveState.Airborne;
+            SetMoveState(controller.isGrounded ? PlayerMoveState.Grounded : PlayerMoveState.Airborne);
             parkourElapsed = 0f;
             parkourDuration = 0f;
             parkourArcHeight = 0f;
@@ -553,7 +557,7 @@ namespace ProjectHive.Player
             bool blockedAbove = !CanStand();
             IsCrouching = crouchHeld || blockedAbove;
             IsSprinting = false;
-            MoveState = IsCrouching ? PlayerMoveState.Crouch : PlayerMoveState.Grounded;
+            SetMoveState(IsCrouching ? PlayerMoveState.Crouch : PlayerMoveState.Grounded);
         }
 
         private void UpdateHorizontalVelocity(Vector3 move, bool grounded)
@@ -580,16 +584,43 @@ namespace ProjectHive.Player
 
             if (!grounded)
             {
-                MoveState = PlayerMoveState.Airborne;
+                SetMoveState(PlayerMoveState.Airborne);
                 return;
             }
 
             if (IsCrouching)
-                MoveState = PlayerMoveState.Crouch;
+                SetMoveState(PlayerMoveState.Crouch);
             else if (IsSprinting && input.sqrMagnitude > 0.01f)
-                MoveState = PlayerMoveState.Sprint;
+                SetMoveState(PlayerMoveState.Sprint);
             else
-                MoveState = PlayerMoveState.Grounded;
+                SetMoveState(PlayerMoveState.Grounded);
+        }
+
+        private void SetMoveState(PlayerMoveState moveState)
+        {
+            if (MoveState == moveState)
+                return;
+
+            PlayerLocomotionState previous = LocomotionState;
+            MoveState = moveState;
+            PlayerLocomotionState current = LocomotionState;
+
+            if (previous != current)
+                LocomotionStateChanged?.Invoke(new LocomotionStateChange(previous, current));
+        }
+
+        private static PlayerLocomotionState ToLocomotionState(PlayerMoveState moveState)
+        {
+            return moveState switch
+            {
+                PlayerMoveState.Sprint => PlayerLocomotionState.Sprint,
+                PlayerMoveState.Crouch => PlayerLocomotionState.Crouch,
+                PlayerMoveState.Slide => PlayerLocomotionState.Slide,
+                PlayerMoveState.Airborne => PlayerLocomotionState.Airborne,
+                PlayerMoveState.Vault => PlayerLocomotionState.Vault,
+                PlayerMoveState.Mantle => PlayerLocomotionState.Mantle,
+                _ => PlayerLocomotionState.Grounded
+            };
         }
 
         private void UpdateCrouchHeight()
