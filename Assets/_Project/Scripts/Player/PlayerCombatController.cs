@@ -125,7 +125,6 @@ namespace ProjectHive.Player
                 return;
 
             LastAssassinationTarget = target;
-            PlayAssassinationMotion(target);
         }
 
         public void ReloadFirearm()
