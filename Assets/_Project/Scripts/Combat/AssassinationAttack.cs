@@ -6,10 +6,8 @@ namespace ProjectHive.Combat
     [DisallowMultipleComponent]
     public sealed class AssassinationAttack : MonoBehaviour
     {
-        [SerializeField] private float minimumLethalDamage = 999f;
         [SerializeField] private float range = 1.6f;
         [SerializeField] private float radius = 0.35f;
-        [SerializeField] private float rearAngle = 70f;
         [SerializeField] private LayerMask targetMask = ~0;
 
         public bool TryAssassinate(GameObject owner, Vector3 origin, Vector3 forward, out GameObject target)
@@ -20,50 +18,23 @@ namespace ProjectHive.Combat
             if (!Physics.SphereCast(origin, radius, direction, out RaycastHit hit, range, targetMask, QueryTriggerInteraction.Ignore))
                 return false;
 
-            if (!CombatHitUtility.TryGetDamageable(hit.collider, out IDamageable damageable, out target))
+            AssassinationInteractable assassinationTarget = hit.collider.GetComponentInParent<AssassinationInteractable>();
+            if (assassinationTarget == null)
                 return false;
 
-            if (CombatHitUtility.IsSelfHit(owner, target) || damageable.IsDead)
+            target = assassinationTarget.gameObject;
+
+            InteractionContext context = new InteractionContext(owner, origin, direction);
+            if (!assassinationTarget.TryAssassinate(in context))
                 return false;
 
-            if (!IsBehindTarget(origin, target.transform))
-                return false;
-
-            float damage = minimumLethalDamage;
-            Health health = target.GetComponent<Health>();
-            if (health != null)
-                damage = Mathf.Max(damage, health.CurrentHealth);
-
-            DamageData damageData = new DamageData(
-                damage,
-                DamageKind.Assassination,
-                DamageHitZone.Head,
-                DamageFlags.BypassArmor | DamageFlags.Critical,
-                hit.point,
-                direction,
-                owner);
-            damageable.ApplyDamage(in damageData);
             return true;
-        }
-
-        private bool IsBehindTarget(Vector3 attackerPosition, Transform target)
-        {
-            Vector3 toAttacker = attackerPosition - target.position;
-            toAttacker.y = 0f;
-
-            if (toAttacker.sqrMagnitude <= 0.0001f)
-                return false;
-
-            float angle = Vector3.Angle(-target.forward, toAttacker.normalized);
-            return angle <= rearAngle * 0.5f;
         }
 
         private void OnValidate()
         {
-            minimumLethalDamage = Mathf.Max(0f, minimumLethalDamage);
             range = Mathf.Max(0.1f, range);
             radius = Mathf.Max(0.01f, radius);
-            rearAngle = Mathf.Clamp(rearAngle, 1f, 180f);
         }
     }
 }

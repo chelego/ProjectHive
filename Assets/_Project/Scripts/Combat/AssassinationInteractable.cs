@@ -39,6 +39,20 @@ namespace ProjectHive.Combat
             if (!CanInteract(in context))
                 return;
 
+            ExecuteAssassination(in context);
+        }
+
+        public bool TryAssassinate(in InteractionContext context)
+        {
+            if (!CanInteract(in context))
+                return false;
+
+            ExecuteAssassination(in context);
+            return true;
+        }
+
+        private void ExecuteAssassination(in InteractionContext context)
+        {
             Vector3 direction = transform.position - context.Origin;
             float damage = health != null ? Mathf.Max(minimumLethalDamage, health.CurrentHealth) : minimumLethalDamage;
             DamageData damageData = new DamageData(
