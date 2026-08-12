@@ -17,6 +17,7 @@ namespace ProjectHive.Combat
 
         [Header("Shot")]
         [SerializeField] private Transform muzzle;
+        [SerializeField] private FirearmBallisticEffects ballisticEffects;
         [SerializeField] private float damage = 25f;
         [SerializeField, Min(1f)] private float defaultHeadshotMultiplier = 2f;
         [SerializeField] private float fireRate = 6f;
@@ -86,6 +87,9 @@ namespace ProjectHive.Combat
 
         private void Awake()
         {
+            if (ballisticEffects == null)
+                ballisticEffects = GetComponent<FirearmBallisticEffects>();
+
             EquipLoadoutIndex(Mathf.Max(0, equippedLoadoutIndex), true);
             ApplyDefinition();
             InitializeAmmo();
@@ -166,14 +170,17 @@ namespace ProjectHive.Combat
 
             if (!TryHitscanHit(owner, shotOrigin, shotDirection, out hit))
             {
+                PlayShotEffects(owner, shotOrigin, shotDirection, false, default, false);
                 actionState = WeaponActionState.Ready;
                 PublishState();
                 return true;
             }
 
+            bool hitDamageable = false;
             if (CombatHitUtility.TryGetDamageable(hit.collider, out IDamageable damageable, out GameObject target) &&
                 !CombatHitUtility.IsSelfHit(owner, target))
             {
+                hitDamageable = true;
                 DamageHitZone hitZone = ResolveHitZone(hit.collider, out float damageMultiplier);
                 DamageFlags flags =
                     hitZone == DamageHitZone.Head || hitZone == DamageHitZone.WeakPoint
@@ -191,6 +198,7 @@ namespace ProjectHive.Combat
                 damageable.ApplyDamage(in damageData);
             }
 
+            PlayShotEffects(owner, shotOrigin, shotDirection, true, hit, hitDamageable);
             actionState = WeaponActionState.Ready;
             PublishState();
             return true;
@@ -320,6 +328,32 @@ namespace ProjectHive.Combat
                 return false;
 
             return owner == null || !hit.transform.IsChildOf(owner.transform);
+        }
+
+        private void PlayShotEffects(
+            GameObject owner,
+            Vector3 shotOrigin,
+            Vector3 shotDirection,
+            bool hasHit,
+            RaycastHit hit,
+            bool hitDamageable)
+        {
+            if (ballisticEffects == null)
+                return;
+
+            Vector3 muzzlePosition = muzzle != null ? muzzle.position : shotOrigin;
+            FirearmShotEffectContext context = new FirearmShotEffectContext(
+                owner,
+                shotOrigin,
+                muzzlePosition,
+                shotDirection,
+                maxDistance,
+                hasHit,
+                hasHit ? hit.point : Vector3.zero,
+                hasHit ? hit.normal : -shotDirection,
+                hasHit ? hit.collider : null,
+                hitDamageable);
+            ballisticEffects.PlayShot(in context);
         }
 
         private Vector3 ApplySpread(Vector3 forward)

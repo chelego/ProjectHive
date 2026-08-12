@@ -1,3 +1,4 @@
+using System.Collections;
 using ProjectHive.Combat;
 using ProjectHive.Core.Contracts;
 using UnityEngine;
@@ -19,8 +20,13 @@ namespace ProjectHive.Player
         [SerializeField] private MeleeWeapon meleeWeapon;
         [SerializeField] private AssassinationAttack assassinationAttack;
         [SerializeField] private PlayerMeleeViewModel meleeViewModel;
+        [SerializeField] private FirstPersonMotor motor;
+        [SerializeField] private float knifeAssassinationAimLockSeconds = 1.75f;
+        [SerializeField] private float warhammerAssassinationAimLockSeconds = 1.85f;
 
         private PlayerEquippedWeaponCategory equippedCategory = PlayerEquippedWeaponCategory.Firearm;
+        private Coroutine assassinationAimLockRoutine;
+        private bool assassinationInputLocked;
 
         public RaycastHit LastWeaponHit { get; private set; }
         public GameObject LastAssassinationTarget { get; private set; }
@@ -38,6 +44,8 @@ namespace ProjectHive.Player
                 assassinationAttack = GetComponentInChildren<AssassinationAttack>();
             if (meleeViewModel == null)
                 meleeViewModel = GetComponentInChildren<PlayerMeleeViewModel>();
+            if (motor == null)
+                motor = GetComponent<FirstPersonMotor>();
 
             if (meleeWeapon == null)
                 meleeWeapon = gameObject.AddComponent<MeleeWeapon>();
@@ -52,8 +60,16 @@ namespace ProjectHive.Player
             EquipFirearmSlot(1);
         }
 
+        private void OnDisable()
+        {
+            EndAssassinationAimLock();
+        }
+
         private void Update()
         {
+            if (assassinationInputLocked)
+                return;
+
             if (Mouse.current != null)
             {
                 if (Mouse.current.leftButton.wasPressedThisFrame)
@@ -155,7 +171,11 @@ namespace ProjectHive.Player
         public void PlayAssassinationMotion(GameObject target = null)
         {
             MeleeWeaponKind kind = meleeWeapon != null ? meleeWeapon.EquippedKind : MeleeWeaponKind.Knife;
-            meleeViewModel?.PlayAssassination(kind);
+            if (target != null)
+                motor?.ForceLookAt(GetAssassinationFocusPoint(target));
+
+            BeginAssassinationAimLock(kind);
+            meleeViewModel?.PlayAssassination(kind, target);
 
             if (target == null)
                 return;
@@ -167,6 +187,47 @@ namespace ProjectHive.Player
             executionMotion.Play(kind, transform);
         }
 
+        private void BeginAssassinationAimLock(MeleeWeaponKind kind)
+        {
+            if (assassinationAimLockRoutine != null)
+                StopCoroutine(assassinationAimLockRoutine);
+
+            assassinationInputLocked = true;
+            motor?.SetLookInputLocked(true);
+            float maxDuration = kind == MeleeWeaponKind.Warhammer
+                ? warhammerAssassinationAimLockSeconds
+                : knifeAssassinationAimLockSeconds;
+            assassinationAimLockRoutine = StartCoroutine(ReleaseAssassinationAimLockWhenMotionEnds(maxDuration));
+        }
+
+        private IEnumerator ReleaseAssassinationAimLockWhenMotionEnds(float maxDuration)
+        {
+            yield return null;
+
+            float elapsed = 0f;
+            while (elapsed < maxDuration && meleeViewModel != null && meleeViewModel.IsMotionPlaying)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                yield return null;
+            }
+
+            assassinationAimLockRoutine = null;
+            assassinationInputLocked = false;
+            motor?.SetLookInputLocked(false);
+        }
+
+        private void EndAssassinationAimLock()
+        {
+            if (assassinationAimLockRoutine != null)
+            {
+                StopCoroutine(assassinationAimLockRoutine);
+                assassinationAimLockRoutine = null;
+            }
+
+            assassinationInputLocked = false;
+            motor?.SetLookInputLocked(false);
+        }
+
         private Vector3 GetOrigin()
         {
             return viewCamera != null ? viewCamera.transform.position : transform.position + Vector3.up * 1.6f;
@@ -175,6 +236,44 @@ namespace ProjectHive.Player
         private Vector3 GetForward()
         {
             return viewCamera != null ? viewCamera.transform.forward : transform.forward;
+        }
+
+        private static Vector3 GetAssassinationFocusPoint(GameObject target)
+        {
+            Transform generated = target != null ? target.transform.Find("Generated Humanoid Target") : null;
+            Transform head = generated != null ? generated.Find("Head Hit Zone") : null;
+            if (head == null && target != null)
+                head = FindChildByName(target.transform, "Head Hit Zone");
+
+            if (head != null)
+                return head.position + Vector3.down * 0.08f;
+
+            return target != null ? target.transform.position + Vector3.up * 1.35f : Vector3.zero;
+        }
+
+        private static Transform FindChildByName(Transform root, string childName)
+        {
+            if (root == null)
+                return null;
+
+            for (int i = 0; i < root.childCount; i++)
+            {
+                Transform child = root.GetChild(i);
+                if (child.name == childName)
+                    return child;
+
+                Transform match = FindChildByName(child, childName);
+                if (match != null)
+                    return match;
+            }
+
+            return null;
+        }
+
+        private void OnValidate()
+        {
+            knifeAssassinationAimLockSeconds = Mathf.Max(0.1f, knifeAssassinationAimLockSeconds);
+            warhammerAssassinationAimLockSeconds = Mathf.Max(0.1f, warhammerAssassinationAimLockSeconds);
         }
     }
 }
