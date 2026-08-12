@@ -78,6 +78,7 @@ namespace ProjectHive.Player
         private Vector3 parkourTargetPosition;
         private readonly Collider[] standCheckHits = new Collider[8];
         private readonly Collider[] parkourClearanceHits = new Collider[12];
+        private bool lookInputLocked;
 
         public PlayerMoveState MoveState { get; private set; }
         public bool IsCrouching { get; private set; }
@@ -87,6 +88,34 @@ namespace ProjectHive.Player
         public Vector3 Velocity => controller != null ? controller.velocity : Vector3.zero;
         public PlayerLocomotionState LocomotionState => ToLocomotionState(MoveState);
         public event Action<LocomotionStateChange> LocomotionStateChanged;
+
+        public void SetLookInputLocked(bool isLocked)
+        {
+            lookInputLocked = isLocked;
+        }
+
+        public void ForceLookAt(Vector3 worldPoint)
+        {
+            Vector3 eyePosition = cameraRoot != null ? cameraRoot.position : transform.position + Vector3.up * standingHeight;
+            Vector3 toTarget = worldPoint - eyePosition;
+            if (toTarget.sqrMagnitude <= 0.0001f)
+                return;
+
+            Vector3 flatDirection = new Vector3(toTarget.x, 0f, toTarget.z);
+            if (flatDirection.sqrMagnitude > 0.0001f)
+                transform.rotation = Quaternion.LookRotation(flatDirection.normalized, Vector3.up);
+
+            Vector3 localDirection = transform.InverseTransformDirection(toTarget.normalized);
+            float horizontalLength = new Vector2(localDirection.x, localDirection.z).magnitude;
+            pitch = Mathf.Clamp(-Mathf.Atan2(localDirection.y, horizontalLength) * Mathf.Rad2Deg, minPitch, maxPitch);
+
+            if (cameraRoot != null)
+                cameraRoot.localRotation = Quaternion.Euler(pitch, 0f, 0f);
+
+            Camera mainCamera = Camera.main;
+            if (mainCamera != null && cameraRoot != null && mainCamera.transform != cameraRoot && mainCamera.transform.IsChildOf(cameraRoot))
+                mainCamera.transform.localRotation = Quaternion.identity;
+        }
 
         private void Awake()
         {
@@ -125,6 +154,9 @@ namespace ProjectHive.Player
 
         private void UpdateLook()
         {
+            if (lookInputLocked)
+                return;
+
             if (Mouse.current == null)
                 return;
 
