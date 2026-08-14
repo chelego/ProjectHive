@@ -112,13 +112,8 @@ namespace ProjectHive.AI.Hive
                 return;
             }
 
-            EnemyReport report = new EnemyReport(
-                EnemyReportKind.Noise,
-                noiseEvent.Position,
-                Mathf.Clamp01(noiseEvent.Loudness),
-                noiseEvent.SourceInstanceId,
-                noiseEvent.OccurredAt);
-            blackboard?.Record(in report);
+            if (HiveReportFactory.TryCreateFromNoise(in noiseEvent, out EnemyReport report))
+                blackboard?.Record(in report);
         }
 
         private void ResolveServices()

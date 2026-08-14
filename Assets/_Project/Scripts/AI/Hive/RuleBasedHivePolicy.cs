@@ -62,6 +62,8 @@ namespace ProjectHive.AI.Hive
                     break;
             }
 
+            radius = Mathf.Max(radius, report.UncertaintyRadius * 2f);
+
             float priority = Mathf.Clamp01(
                 blackboard.AlertScore * 0.65f +
                 report.Confidence * 0.35f);

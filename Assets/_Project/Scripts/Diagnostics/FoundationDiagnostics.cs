@@ -92,6 +92,17 @@ namespace ProjectHive.Diagnostics
                 Time.time);
             eventBus.PublishNoise(in noiseEvent);
 
+            NoiseEvent wildlifeEvent = new NoiseEvent(
+                new Vector3(6f, 0f, 9f),
+                0.65f,
+                24f,
+                6f,
+                NoiseCategory.WildlifeAlarm,
+                NoiseAffiliation.Environment,
+                gameObject.GetInstanceID(),
+                Time.time);
+            eventBus.PublishNoise(in wildlifeEvent);
+
             EnemyReport visualReport = new EnemyReport(
                 EnemyReportKind.VisualContact,
                 new Vector3(8f, 0f, 12f),
@@ -109,15 +120,26 @@ namespace ProjectHive.Diagnostics
                                 lastCommand.Kind == HiveCommandKind.Converge;
             bool schedulerValid = runtimeCoordinator.RegisteredCount > 0;
             bool blackboardValid = hiveDirector.Blackboard != null &&
-                                   hiveDirector.Blackboard.ReportCount >= 2;
+                                   hiveDirector.Blackboard.ReportCount >= 3;
+            bool wildlifeSignalValid =
+                hiveDirector.Blackboard != null &&
+                hiveDirector.Blackboard.TryGetRecent(1, out EnemyReport wildlifeReport) &&
+                wildlifeReport.Source == EnemyReportSource.EnvironmentalNoise &&
+                wildlifeReport.UncertaintyRadius >= 6f;
 
-            bool success = stateValid && commandValid && schedulerValid && blackboardValid;
+            bool success = stateValid &&
+                           commandValid &&
+                           schedulerValid &&
+                           blackboardValid &&
+                           wildlifeSignalValid;
             LastSmokeTestResult = success
-                ? "PASSED: flow, events, scheduler, blackboard, and Hive command"
+                ? "PASSED: flow, events, scheduler, environmental signal, " +
+                  "blackboard, and Hive command"
                 : "FAILED: state=" + stateValid +
                   ", command=" + commandValid +
                   ", scheduler=" + schedulerValid +
-                  ", blackboard=" + blackboardValid;
+                  ", blackboard=" + blackboardValid +
+                  ", wildlifeSignal=" + wildlifeSignalValid;
 
             if (success)
                 Debug.Log("[FoundationDiagnostics] " + LastSmokeTestResult, this);
