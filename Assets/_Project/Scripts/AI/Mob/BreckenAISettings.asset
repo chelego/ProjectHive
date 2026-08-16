@@ -39,12 +39,18 @@ MonoBehaviour:
   patrolHeadSweepAngle: 180
   patrolHeadSweepSpeed: 90
   bodyFollowRatio: 0.2
-  alertMax: 3
+  alertMax: 10
   alertDecreaseSpeed: 1
-  alertIncreaseSpeed: 3
+  alertIncreaseSpeed: 20
   destinationUpdateThreshold: 0.5
-  stuckDuration: 10
+  stuckDuration: 15
   chaseSpeed: 9
+  searchAlertDecreaseSpeed: 0.5
+  assumedPlayerSpeed: 7
+  fleeDirectness: 0.6
+  maxSearchRadius: 15
+  searchStartHalfAngle: 45
+  searchEndHalfAngle: 135
   requestPathTickInterval: 0.1
   judgeTickInterval: 0.1
   perceptionTickInterval: 0.1

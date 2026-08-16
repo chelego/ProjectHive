@@ -55,9 +55,9 @@ namespace ProjectHive.AI.Mob
         
 
         [Header("Alert")] 
-        [SerializeField, Min(0f)] private float alertMax = 3f;
+        [SerializeField, Min(0f)] private float alertMax = 10f;
         [SerializeField, Min(0f)] private float alertDecreaseSpeed = 1f;
-        [SerializeField, Min(0f)] private float alertIncreaseSpeed = 3f;
+        [SerializeField, Min(0f)] private float alertIncreaseSpeed = 20f;
         
 
         
@@ -67,6 +67,21 @@ namespace ProjectHive.AI.Mob
         // player가 시야 밖으로 벗어난 이후, chase 상태 유지 시간
         [SerializeField, Min(0f)] private float stuckDuration = 10f;
         [SerializeField, Min(0f)] private float chaseSpeed = 8f;
+
+        [Header("Search")]
+        // Search 상태 중 경계도가 깎이는 속도, patrol - alertDecreaseSpeed와 별개
+        [SerializeField, Min(0f)] private float searchAlertDecreaseSpeed = 0.5f; 
+        // 플레이어가 이 속도로 계속 이동했다고 가정하고 탐색 반경을 넓힌다
+        [SerializeField, Min(0f)] private float assumedPlayerSpeed = 7f;
+        // 플레이어가 얼마나 직선으로 도망친다고 볼 것인가. 1이면 전력 직선 질주 가정
+        // 이 비율에 따라 Search 반경(부채꼴)을 넓히는 속도가 높아지거나 낮아진다
+        [SerializeField, Range(0.01f, 1f)] private float fleeDirectness = 0.6f;
+        // 탐색 반경 상한. alertness와 브레켄과 플레이어의 이동속도를 고려한 Search 범위
+        [SerializeField, Min(0f)] private float maxSearchRadius = 25f;
+        // 놓친 직후 부채꼴 반각
+        [SerializeField, Range(0f, 180f)] private float searchStartHalfAngle = 45f;
+        // 부채꼴이 최대로 벌어지는 반각
+        [SerializeField, Range(0f, 180f)] private float searchEndHalfAngle = 135f;
 
         
         [Header("Tick Interval")] 
@@ -125,6 +140,16 @@ namespace ProjectHive.AI.Mob
         public float DestinationUpdateThreshold => destinationUpdateThreshold;
         public float StuckDuration => stuckDuration;
         public float ChaseSpeed => chaseSpeed;
+        
+        
+        // Search
+        // Search
+        public float SearchAlertDecreaseSpeed => searchAlertDecreaseSpeed;
+        public float AssumedPlayerSpeed => assumedPlayerSpeed;
+        public float FleeDirectness => fleeDirectness;
+        public float MaxSearchRadius => maxSearchRadius;
+        public float SearchStartHalfAngle => searchStartHalfAngle;
+        public float SearchEndHalfAngle => searchEndHalfAngle;
         
         
         // Tick Interval
