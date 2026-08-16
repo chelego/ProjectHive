@@ -5,13 +5,14 @@
     using ProjectHive.Core.Runtime;
     // GameEventBus
     using ProjectHive.Core.Events;
+    using ProjectHive.Core.Contracts;
     using System;
     using Random = UnityEngine.Random;
 
     namespace ProjectHive.AI.Mob
     {
         [RequireComponent(typeof(NavMeshAgent))]
-        public sealed class BreckenAI : MonoBehaviour, IRuntimeTickable
+        public sealed class BreckenAI : MonoBehaviour, IRuntimeTickable, IAssassinationStateProvider
         {
             private enum EnemyState
             {
@@ -30,6 +31,10 @@
             private NavMeshAgent agent;
             // 가장 짧은 감지 주기를 minimumInterval로 사용
             public float MinimumTickInterval => settings.PerceptionTickInterval;
+            
+            // 현재 암살 가능 여부 전달
+            public bool IsAssassinable =>
+                currentState is EnemyState.Idle or EnemyState.Patrol;
 
 
             [Header("Player Perception")]
@@ -56,24 +61,18 @@
             [Header("State - Chase")]
             [SerializeField, Min(0f)]
             private float attackRange = 2f; // 공격 범위, 임시값
-            [SerializeField] private float stuckTimer;
             private float lastChaseRemainingDistance = float.PositiveInfinity;
 
             [Header("State - Search")]
-            [SerializeField, Min(0f)] private float searchRadius = 8f;
             [SerializeField, Min(1)] private int searchPointCount = 3;
-            [SerializeField, Min(0f)] private float searchDuration = 15f;
-            [SerializeField, Range(0f, 180f)] private float searchSweepAngle = 90f;
-            [SerializeField] private float searchTimer;
             private int visitedSearchPointsCount;
-            private bool isSweepDone;
-            private Quaternion searchSweepTarget;
-            private int searchSweepSign = 1; // 1: 시계, -1: 반시계
 
 
             private Vector3 lastKnownPlayerPosition;
             private Vector3 lastKnownPlayerDirection;
             private Vector3 lastRequestedDestination;
+            // 탐색 반경 기준 계산을 위한, 마지막으로 플레이어를 목격한 시각 
+            private float lastKnownPlayerSightingTime;
 
             private Vector3 patrolSpawnPosition;
 
@@ -126,7 +125,6 @@
                 patrolSweepSign = -1;
 
                 //chase reset
-                stuckTimer = 0f;
 
                 ResolveServices();
                 patrolSpawnPosition = transform.position; // 순찰 기준점, 풀에서 꺼낼 때마다 새로운 기준점
@@ -135,11 +133,10 @@
                 currentState = EnemyState.Idle;
                 alertness = 0f;
 
-                searchTimer = 0f;
                 visitedSearchPointsCount = 0;
-                isSweepDone = false;
                 lastKnownPlayerPosition = Vector3.zero;
                 lastKnownPlayerDirection = Vector3.zero;
+                lastKnownPlayerSightingTime = 0f;
                 // 플레이어가 우연히 월드의 원점에 서있는 경우 방지
                 lastRequestedDestination = Vector3.positiveInfinity;
 
@@ -245,7 +242,6 @@
                         break;
 
                     case EnemyState.Chase:
-                        stuckTimer = 0f;
                         lastChaseRemainingDistance = float.PositiveInfinity;
                         agent.updateRotation = false;
                         lastRequestedDestination = Vector3.positiveInfinity;
@@ -253,17 +249,10 @@
                         break;
 
                     case EnemyState.Search:
-                        agent.updateRotation = false;
+                        agent.updateRotation = true;
                         if (agent.isOnNavMesh) agent.ResetPath();
-                        searchTimer = 0f;
+                        agent.speed = settings.PatrolSpeed; // 일단 patrol 상태의 이동속도와 동일
                         visitedSearchPointsCount = 0;
-                        isSweepDone = false;
-                        // 제자리 두리번거리기
-                        // searchSweepSign: 플레이어가 사라진 방향, 즉 그 방향으로 먼저 고개를 꺾음
-                        searchSweepTarget = Quaternion.Euler(
-                            0f,
-                            transform.eulerAngles.y + searchSweepAngle * searchSweepSign,
-                            0f);
                         lookPitch = 0f;
                         break;
 
@@ -401,7 +390,10 @@
                 if (playerTransform != null && isPlayerVisible)
                 {
                     // 플레이어가 시야에 있으므로 위치를 갱신
+                    lastKnownPlayerDirection =
+                        (playerTransform.position - lastKnownPlayerPosition).normalized;
                     lastKnownPlayerPosition = playerTransform.position;
+                    lastKnownPlayerSightingTime = context.CurrentTime;
 
                     FaceTarget(playerTransform.position, context.DeltaTime);
 
@@ -474,6 +466,7 @@
 
             private void TickInvestigate(in RuntimeTickContext context)
             {
+                Debug.Log("State : Investigate");
             }
 
             private void TickChase(in RuntimeTickContext context)
@@ -481,19 +474,12 @@
                 // Chase 중 플레이어가 보인다면
                 if (playerTransform != null && isPlayerVisible)
                 {
-                    Vector3 playerDelta =
-                        playerTransform.position -
-                        lastKnownPlayerPosition;
+                    // 마지막으로 본 플레이어 위치와 방향을 갱신
+                    lastKnownPlayerDirection =
+                        (playerTransform.position - lastKnownPlayerPosition).normalized;
 
-                    if (playerDelta.sqrMagnitude > 0.01f)
-                    {
-                        lastKnownPlayerDirection =
-                            playerDelta.normalized;
-                    }
-
-                    // 마지막으로 본 플레이어 위치 갱신
-                    lastKnownPlayerPosition =
-                        playerTransform.position;
+                    lastKnownPlayerPosition = playerTransform.position;
+                    lastKnownPlayerSightingTime = context.CurrentTime;
 
                     alertness = settings.AlertMax;
                     agent.updateRotation = false;
@@ -509,6 +495,14 @@
                     headTransform.localRotation = Quaternion.identity;
                     lookPitch = Mathf.MoveTowardsAngle(
                         lookPitch, 0f, settings.HeadTurnSpeed * context.DeltaTime);
+                    
+                    // 시야를 잃은 채, 너무 오래 chase 중이라면 탐색으로 넘긴다
+                    if (context.CurrentTime - lastKnownPlayerSightingTime >=
+                        settings.StuckDuration)
+                    {
+                        ChangeState(EnemyState.Search);
+                        return;
+                    }
                 }
 
                 if (!agent.isOnNavMesh) return;
@@ -535,29 +529,8 @@
                         // 목적지 요청에 성공했을 때만 기록한다
                         lastRequestedDestination =
                             lastKnownPlayerPosition;
-
-                        stuckTimer = 0f;
                     }
-                    else if (!isPlayerVisible)
-                    {
-                        // 플레이어를 놓친 상태에서 목적지 요청이
-                        // 계속 실패하면 정체 시간으로 처리한다
-                        stuckTimer += context.DeltaTime;
-
-                        if (stuckTimer >=
-                            settings.StuckDuration)
-                        {
-                            BeginSearch();
-                            return;
-                        }
-                    }
-                    else
-                    {
-                        // 플레이어가 보이는 동안에는 Search로 전환하지 않고
-                        // 다음 틱에서 목적지 요청을 다시 시도한다
-                        stuckTimer = 0f;
-                    }
-
+                    
                     return;
                 }
 
@@ -602,79 +575,115 @@
 
                 if (isReachedLastKnownPosition)
                 {
-                    BeginSearch();
+                    ChangeState(EnemyState.Search);
                     return;
                 }
-
-                // 플레이어를 놓친 상태에서 경로가 없거나,
-                // 목적지까지 도달하지 못한 채 움직임이 멈췄다면
-                // 정체 상태로 판단한다
-                bool isPathBlocked =
-                    !isPlayerVisible &&
-                    !agent.pathPending &&
-                    (
-                        !agent.hasPath ||
-                        (
-                            (
-                                agent.remainingDistance >
-                                horizontalArrivalThreshold ||
-                                agent.pathStatus !=
-                                NavMeshPathStatus.PathComplete
-                            ) &&
-                            agent.velocity.sqrMagnitude <=
-                            0.01f
-                        )
-                    );
-
-                if (isPathBlocked)
-                {
-                    stuckTimer += context.DeltaTime;
-
-                    if (stuckTimer >=
-                        settings.StuckDuration)
-                    {
-                        BeginSearch();
-                        return;
-                    }
-                }
-                else
-                {
-                    stuckTimer = 0f;
-                }
             }
 
-            private void BeginSearch()
-            {
-                float whichSide =
-                    Vector3.Dot(transform.right, lastKnownPlayerDirection);
 
-                searchSweepSign = whichSide >= 0f ? 1 : -1;
-
-                ChangeState(EnemyState.Search);
-            }
 
             private void TickAttack(in RuntimeTickContext context)
             {
+                Debug.Log("State : Attack");
             }
 
             private void TickSearch(in RuntimeTickContext context)
             {
-                Debug.LogWarning("-> Search");
+                // Search 상태에서 player를 발견하면 즉시 추격
+                if (playerTransform != null && isPlayerVisible)
+                {
+                    ChangeState(EnemyState.Chase);
+                    return;
+                }
+                
+                // 경계도를 증가시키는 외부 자극이 없다면, 경계도가 감소한다
+                alertness -= settings.SearchAlertDecreaseSpeed * context.DeltaTime;
+                
+                if (alertness <= 0)
+                {
+                    alertness = 0f;
+                    ChangeState(EnemyState.Patrol);
+                    return;
+                }
+
+                if (!agent.isOnNavMesh) return;
+
+                // 경로가 계산 중이라면, 도착 판정을 금한다
+                if (agent.pathPending) return;
+
+                // 목적지가 없거나, 이미 도착했다면 다음 지점을 향한다
+                if (!agent.hasPath ||
+                    agent.remainingDistance <= agent.stoppingDistance + settings.ArrivalDistanceThreshold) 
+                {
+                    MoveToNextSearchPoint(context);
+                }
             }
 
-            private bool TryGetSearchPoint(out Vector3 result)
+            /// <summary>
+            /// 다음 탐색 지점 지정
+            /// 지점을 찾지 못하면 목적지를 잡지 않으며,  다음 틱에 다시 시도
+            /// </summary>
+            private void MoveToNextSearchPoint(in RuntimeTickContext context)
             {
-                Vector3 randomPoint = lastKnownPlayerPosition + Random.insideUnitSphere * searchRadius;
+                if (TryGetSearchPoint(context, out Vector3 point))
+                {
+                    agent.SetDestination(point);
+                }
+            }
 
-                if (NavMesh.SamplePosition(randomPoint, out NavMeshHit hit, 2f, NavMesh.AllAreas))
+            
+
+            private bool TryGetSearchPoint(in RuntimeTickContext context, out Vector3 result)
+            {
+                // 시야를 잃은 뒤 흐른 시간
+                float timeElapsed = context.CurrentTime - lastKnownPlayerSightingTime;
+                
+                // 그 시간 동안 플레이어가 이동한 거리 추정, 추정치를 반경으로 삼는다
+                float searchRadius = Mathf.Min(
+                    settings.AssumedPlayerSpeed * settings.FleeDirectness * timeElapsed,
+                    settings.MaxSearchRadius);
+                
+                // 탐색 시간 대비 진행도, patrol 전이에 가까워질수록 부채꼴이 넓어진다
+                float searchProgress = Mathf.Clamp01(1f - alertness / settings.AlertMax);
+
+                Vector3 searchDirection = lastKnownPlayerDirection;
+                searchDirection.y = 0f; 
+
+                float halfAngle;
+                if (searchDirection.sqrMagnitude < 0.01f)
+                {
+                    // 사라진 방향을 모르면 처음부터 원으로 뒤진다
+                    searchDirection = transform.forward;
+                    halfAngle = 180f;
+                }
+                else
+                {
+                    searchDirection.Normalize();
+                    halfAngle = Mathf.Lerp(
+                        settings.SearchStartHalfAngle,
+                        settings.SearchEndHalfAngle,
+                        searchProgress
+                    );
+                }
+
+                // 랜덤 방향
+                Vector3 direction =
+                    Quaternion.Euler(0f, Random.Range(-halfAngle, halfAngle), 0f) * searchDirection;
+                // 그 방향의 랜덤 거리만큼 이동한 지점
+                Vector3 candidate =
+                    lastKnownPlayerPosition + direction * Random.Range(0f, searchRadius);
+
+                // 2m 내에 hit했다면 true, 아니면 마지막 위치라도 반환하며 false
+                if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, 2f, NavMesh.AllAreas))
                 {
                     result = hit.position;
                     return true;
                 }
-
                 result = lastKnownPlayerPosition;
                 return false;
             }
+
+
 
 
             /// <summary>
@@ -730,7 +739,7 @@
             Gizmos.color = isPlayerVisible ? Color.green : Color.red;
             Gizmos.DrawLine(eyePosition, targetPoint);
         }
-
+    
             // 경계도 확인용
             private void OnDrawGizmos()
             {
