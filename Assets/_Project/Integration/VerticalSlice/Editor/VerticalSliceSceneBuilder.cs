@@ -24,8 +24,8 @@ namespace ProjectHive.Editor.Integration
         private const string MapScenePath = "Assets/_Project/Scenes/TerrainBlockout.unity";
         private const string PlayerScenePath = "Assets/Scenes/SampleScene.unity";
         private const string MobScenePath = "Assets/_Project/Scenes/Mob_AI_JH.unity";
-        private const string OutputScenePath = "Assets/_Project/Scenes/VerticalSlice.unity";
-        private const string NavMeshFolderPath = "Assets/_Project/Scenes/VerticalSlice";
+        private const string OutputScenePath = "Assets/_Project/Integration/VerticalSlice/Scenes/VerticalSlice.unity";
+        private const string NavMeshFolderPath = "Assets/_Project/Integration/VerticalSlice/Scenes/VerticalSlice";
         private const string NavMeshDataPath = NavMeshFolderPath + "/NavMesh-Raid.asset";
         private const string RuntimeBudgetPath = "Assets/_Project/Data/Runtime/RuntimeBudgetSettings.asset";
 

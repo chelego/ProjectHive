@@ -16,7 +16,7 @@ namespace ProjectHive.Editor.Integration
     [InitializeOnLoad]
     public static class VerticalSliceSmokeRunner
     {
-        private const string ScenePath = "Assets/_Project/Scenes/VerticalSlice.unity";
+        private const string ScenePath = "Assets/_Project/Integration/VerticalSlice/Scenes/VerticalSlice.unity";
         private const string SessionKey = "ProjectHive.VerticalSliceSmoke.Active";
 
         private static float enteredPlayModeAt;

@@ -6,7 +6,7 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/_Project/Scenes/VerticalSlice.unity
+    path: Assets/_Project/Integration/VerticalSlice/Scenes/VerticalSlice.unity
     guid: c6ab6e810adb71a4298d3e49b05d5a4b
   - enabled: 1
     path: Assets/Scenes/SampleScene.unity
