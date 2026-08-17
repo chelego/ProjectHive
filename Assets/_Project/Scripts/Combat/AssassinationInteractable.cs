@@ -14,17 +14,22 @@ namespace ProjectHive.Combat
         [SerializeField] private float rearAngle = 80f;
 
         private Health health;
+        private IAssassinationStateProvider assassinationState;
 
         public string InteractionPrompt => health != null && health.IsDead ? string.Empty : prompt;
 
         private void Awake()
         {
             health = GetComponent<Health>();
+            assassinationState = GetComponent<IAssassinationStateProvider>();
         }
 
         public bool CanInteract(in InteractionContext context)
         {
             if (health == null || health.IsDead || context.Interactor == null)
+                return false;
+
+            if (assassinationState != null && !assassinationState.IsAssassinable)
                 return false;
 
             Vector3 toTarget = transform.position - context.Origin;
