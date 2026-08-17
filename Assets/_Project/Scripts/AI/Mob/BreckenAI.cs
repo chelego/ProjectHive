@@ -5,13 +5,14 @@
     using ProjectHive.Core.Runtime;
     // GameEventBus
     using ProjectHive.Core.Events;
+    using ProjectHive.Core.Contracts;
     using System;
     using Random = UnityEngine.Random;
 
     namespace ProjectHive.AI.Mob
     {
         [RequireComponent(typeof(NavMeshAgent))]
-        public sealed class BreckenAI : MonoBehaviour, IRuntimeTickable
+        public sealed class BreckenAI : MonoBehaviour, IRuntimeTickable, IAssassinationStateProvider
         {
             private enum EnemyState
             {
@@ -26,48 +27,52 @@
 
             [SerializeField] private MobAISettings settings;
             [SerializeField] private Transform headTransform;
-            
+
             private NavMeshAgent agent;
             // 가장 짧은 감지 주기를 minimumInterval로 사용
             public float MinimumTickInterval => settings.PerceptionTickInterval;
+            
+            // 현재 암살 가능 여부 전달
+            public bool IsAssassinable =>
+                currentState is EnemyState.Idle or EnemyState.Patrol;
 
 
-            [Header("Player Perception")] 
+            [Header("Player Perception")]
             [SerializeField] private Transform playerTransform;
             [SerializeField] private bool isPlayerVisible;
+            [SerializeField] private float lookPitch; // 시선이 수평선으로부터 꺾인 각도
+            private const float PlayerHeight = 1.8f; // 플레이어 키, 1.8m, 임시, 차후 웅크리기 등에 맞춰 변경
+            private float playerAimHeight = PlayerHeight * 0.7f; // 브레켄이 플레이어를 바라보는 플레이어의 몸통 각도, 명치 부근을 바라본다
 
-            [Header("Enemy State")] [SerializeField]
+            [Header("Enemy State")]
+            [SerializeField]
             private EnemyState currentState = EnemyState.Idle;
 
-            [Header("State - Patrol")] 
+            [Header("State - Patrol")]
             [SerializeField] private bool isPatrolWaiting;
             [SerializeField] private float patrolWaitingTimer;
             private float patrolSweepBaseYaw; //도착 지점의 몸통 방향
             private float patrolSweepOffset; // 기준점으로부터 머리가 틀어진 각도, 기준은 도착한 순간 몸통의 정면
             private int patrolSweepPhase; // 0: 한쪽끝, 1: 반대쪽 끝
-            private int patrolSweepSign = -1; 
-            
+            private int patrolSweepSign = -1;
 
 
-            [Header("State - Chase")] [SerializeField, Min(0f)]
+
+            [Header("State - Chase")]
+            [SerializeField, Min(0f)]
             private float attackRange = 2f; // 공격 범위, 임시값
-            [SerializeField] private float stuckTimer;
+            private float lastChaseRemainingDistance = float.PositiveInfinity;
 
-            [Header("State - Search")] 
-            [SerializeField, Min(0f)] private float searchRadius = 8f;
+            [Header("State - Search")]
             [SerializeField, Min(1)] private int searchPointCount = 3;
-            [SerializeField, Min(0f)] private float searchDuration = 15f;
-            [SerializeField, Range(0f, 180f)] private float searchSweepAngle = 90f;
-            [SerializeField] private float searchTimer;
             private int visitedSearchPointsCount;
-            private bool isSweepDone;
-            private Quaternion searchSweepTarget;
-            private int searchSweepSign = 1; // 1: 시계, -1: 반시계
-            
+
 
             private Vector3 lastKnownPlayerPosition;
             private Vector3 lastKnownPlayerDirection;
             private Vector3 lastRequestedDestination;
+            // 탐색 반경 기준 계산을 위한, 마지막으로 플레이어를 목격한 시각 
+            private float lastKnownPlayerSightingTime;
 
             private Vector3 patrolSpawnPosition;
 
@@ -108,7 +113,9 @@
                     enabled = false;
                     return;
                 }
-                
+                // reset
+                lookPitch = 0f;
+
                 // patrol reset
                 isPatrolWaiting = false;
                 patrolWaitingTimer = 0f;
@@ -116,25 +123,23 @@
                 patrolSweepOffset = 0f;
                 patrolSweepPhase = 0;
                 patrolSweepSign = -1;
-                
+
                 //chase reset
-                stuckTimer = 0f;
-                
+
                 ResolveServices();
                 patrolSpawnPosition = transform.position; // 순찰 기준점, 풀에서 꺼낼 때마다 새로운 기준점
-                // 브레켄이 죽은 후 풀 반환 이후
-                // 풀에서 다시 꺼낼 때 초기화용
+                                                          // 브레켄이 죽은 후 풀 반환 이후
+                                                          // 풀에서 다시 꺼낼 때 초기화용
                 currentState = EnemyState.Idle;
                 alertness = 0f;
 
-                searchTimer = 0f;
                 visitedSearchPointsCount = 0;
-                isSweepDone = false;
                 lastKnownPlayerPosition = Vector3.zero;
                 lastKnownPlayerDirection = Vector3.zero;
+                lastKnownPlayerSightingTime = 0f;
                 // 플레이어가 우연히 월드의 원점에 서있는 경우 방지
                 lastRequestedDestination = Vector3.positiveInfinity;
-                
+
                 if (agent != null) agent.updateRotation = true; // Alert/Search에서 꺼둔 회전을 되돌린다
                 headTransform.localRotation = Quaternion.identity; // Chase에서 바뀐 머리를 정면으로 초기화
 
@@ -164,29 +169,41 @@
                 }
             }
 
+            // 시야는 거리로 -> y축을 살려 대각선 계산
             private bool CanSeePlayer()
             {
                 if (playerTransform == null || headTransform == null) return false;
 
                 Vector3 eyePosition = headTransform.position;
                 // 플레이어의 몸통 위치
-                Vector3 targetPoint = playerTransform.position + Vector3.up * 0.9f;
+                Vector3 targetPoint = playerTransform.position + Vector3.up * playerAimHeight;
                 Vector3 toTarget = targetPoint - eyePosition;
                 Vector3 toTargetFlat = new Vector3(toTarget.x, 0, toTarget.z);
-                
-                
+
+
                 // 거리 - 발밑 기준으로
                 Vector3 toPlayer = playerTransform.position - transform.position;
                 if (toPlayer.sqrMagnitude > settings.SightDistance * settings.SightDistance) return false;
-                
+
+                // 가까울수록 시야가 넓어진다. 좌우와 상하가 같은 비율을 쓴다
+                float sightCloseness = Mathf.InverseLerp(
+                    settings.SightBoostFarDistance, settings.SightBoostNearDistance, toPlayer.magnitude);
+
                 // 시야각 - 좌우
                 Vector3 forwardFlat = new Vector3(transform.forward.x, 0, transform.forward.z);
-                if (Vector3.Angle(forwardFlat, toTargetFlat) > settings.BothSideSightsAngle * 0.5f) return false;
-                
+                float halfFan = Mathf.Lerp(
+                    settings.BothSideSightsAngle, settings.CloseSightAngle, sightCloseness) * 0.5f;
+
+                if (Vector3.Angle(forwardFlat, toTargetFlat) > halfFan) return false;
+
                 // 시야각 - 상하, 눈 기준
+                float upLimit = Mathf.Lerp(settings.UpSightAngle, settings.CloseUpSightAngle, sightCloseness);
+                float downLimit = Mathf.Lerp(settings.DownSightAngle, settings.CloseDownSightAngle, sightCloseness);
+
                 float verticalAngle = Mathf.Atan2(toTarget.y, toTargetFlat.magnitude) * Mathf.Rad2Deg;
-                if (verticalAngle > settings.UpSightAngle || verticalAngle < -settings.DownSightAngle) return false;
-                
+                float relativeVerticalAngle = verticalAngle - lookPitch;
+                if (relativeVerticalAngle > upLimit || relativeVerticalAngle < -downLimit) return false;
+
                 // Raycast로 장애물 판정
                 if (Physics.Raycast(
                         eyePosition,
@@ -195,7 +212,6 @@
                         settings.SightBlockMask)) return false;
 
                 return true;
-
             }
 
             private void ChangeState(EnemyState next)
@@ -209,6 +225,7 @@
                 switch (next)
                 {
                     case EnemyState.Patrol:
+                        agent.ResetPath();
                         agent.updateRotation = true;
                         agent.speed = settings.PatrolSpeed;
                         isPatrolWaiting = false;
@@ -216,35 +233,32 @@
                         patrolSweepOffset = 0f;
                         patrolSweepPhase = 0;
                         headTransform.localRotation = Quaternion.identity;
+                        lookPitch = 0f;
                         break;
-                    
+
                     case EnemyState.Alert:
                         agent.updateRotation = false;
                         if (agent.isOnNavMesh) agent.ResetPath();
                         break;
-                    
+
                     case EnemyState.Chase:
-                        stuckTimer = 0f;
+                        lastChaseRemainingDistance = float.PositiveInfinity;
                         agent.updateRotation = false;
+                        lastRequestedDestination = Vector3.positiveInfinity;
                         agent.speed = settings.ChaseSpeed;
                         break;
-                    
+
                     case EnemyState.Search:
-                        agent.updateRotation = false;
+                        agent.updateRotation = true;
                         if (agent.isOnNavMesh) agent.ResetPath();
-                        searchTimer = 0f;
+                        agent.speed = settings.PatrolSpeed; // 일단 patrol 상태의 이동속도와 동일
                         visitedSearchPointsCount = 0;
-                        isSweepDone = false;
-                        // 제자리 두리번거리기
-                        // searchSweepSign: 플레이어가 사라진 방향, 즉 그 방향으로 먼저 고개를 꺾음
-                        searchSweepTarget = Quaternion.Euler(
-                            0f,
-                            transform.eulerAngles.y + searchSweepAngle * searchSweepSign,
-                            0f);
+                        lookPitch = 0f;
                         break;
 
                     default:
                         agent.updateRotation = true;
+                        lookPitch = 0f;
                         break;
                 }
             }
@@ -270,7 +284,7 @@
                     // Search 상태에서 patrol로 복귀한 경우, 서서히 깎는다
                     alertness = Mathf.Max(0f, alertness - settings.AlertDecreaseSpeed * context.DeltaTime);
                 }
-                
+
                 if (isPlayerVisible)
                 {
                     ChangeState(EnemyState.Alert);
@@ -285,7 +299,8 @@
                     return;
                 }
 
-                if (!agent.hasPath || agent.remainingDistance <= agent.stoppingDistance + .1f)
+                if (!agent.hasPath ||
+                    agent.remainingDistance <= agent.stoppingDistance + settings.ArrivalDistanceThreshold)
                 {
                     BeginPatrolWait();
                 }
@@ -310,14 +325,14 @@
             private void TickPatrolWait(float deltaTime)
             {
                 patrolWaitingTimer += deltaTime;
-                
+
                 //머리가 향할 각도
                 float half = settings.PatrolHeadSweepAngle * 0.5f;
                 float targetOffset = patrolSweepPhase == 0 ? half * patrolSweepSign : -half * patrolSweepSign;
 
                 patrolSweepOffset = Mathf.MoveTowards(
                     patrolSweepOffset, targetOffset, settings.PatrolHeadSweepSpeed * deltaTime);
-                
+
                 // 머리는 목이 돌아가는 각도만큼 회전, 몸은 특정 비율만큼만 회전
                 float bodyOffset = patrolSweepOffset * settings.BodyFollowRatio;
                 float headOffset = Mathf.Clamp(
@@ -375,7 +390,10 @@
                 if (playerTransform != null && isPlayerVisible)
                 {
                     // 플레이어가 시야에 있으므로 위치를 갱신
+                    lastKnownPlayerDirection =
+                        (playerTransform.position - lastKnownPlayerPosition).normalized;
                     lastKnownPlayerPosition = playerTransform.position;
+                    lastKnownPlayerSightingTime = context.CurrentTime;
 
                     FaceTarget(playerTransform.position, context.DeltaTime);
 
@@ -400,22 +418,42 @@
 
             private void FaceTarget(Vector3 targetPosition, float deltaTime)
             {
-                Vector3 toTarget = targetPosition - transform.position;
-                toTarget.y = 0f;
+                // 시선을 목표의 수직 각도로 이동, 몸통을 기울이지 않음
+                Vector3 eyeToAim = targetPosition + Vector3.up * playerAimHeight - headTransform.position;
+                Vector3 eyeToAimFlat = new Vector3(eyeToAim.x, 0f, eyeToAim.z);
+                // 브레켄의 머리가 플레이어를 보기 위해 꺾어야 하는 목표 각도
+                float toTargetPitch = Mathf.Clamp(
+                    Mathf.Atan2(eyeToAim.y, eyeToAimFlat.magnitude) * Mathf.Rad2Deg,
+                    -settings.VerticalHeadTurnAngle,
+                    settings.VerticalHeadTurnAngle
+                );
+                lookPitch = Mathf.MoveTowardsAngle(lookPitch, toTargetPitch, settings.HeadTurnSpeed * deltaTime);
+                    
                 
+                Vector3 toTarget = targetPosition - transform.position;
+                Vector3 toTargetFlat = new Vector3(toTarget.x, 0f, toTarget.z);
+
                 // 너무 가까운 경우 불안정, 즉시 return
-                if (toTarget.sqrMagnitude < 0.01f)
+                if (toTargetFlat.sqrMagnitude < 0.01f)
                 {
                     return;
                 }
 
-                float targetYaw = Quaternion.LookRotation(toTarget).eulerAngles.y;
-                
+                // 회전용
+                float targetYaw = Quaternion.LookRotation(toTargetFlat).eulerAngles.y;
+
                 // 몸통은 목표를 향해 천천히 돌아간다
+                // 가까울수록 더 빠르게 회전
+                // 가까움정도를 봐야하므로 B < 현재값 < A로 사용
+                float closeness = Mathf.InverseLerp(
+                    settings.TurnBoostFarDistance, settings.TurnBoostNearDistance, toTarget.magnitude);
+                float bodyTurnSpeed = Mathf.Lerp(
+                    settings.BodyTurnSpeed, settings.CloseBodyTurnSpeed, closeness);
+
                 float bodyYaw = Mathf.MoveTowardsAngle(
-                    transform.eulerAngles.y, targetYaw, settings.BodyTurnSpeed * deltaTime);
+                    transform.eulerAngles.y, targetYaw, bodyTurnSpeed * deltaTime);
                 transform.rotation = Quaternion.Euler(0f, bodyYaw, 0f);
-                
+
                 // 머리는 목표를 향해 몸통이 돈 만큼을 빼서 그만큼 꺾는다
                 float remainingYaw = Mathf.DeltaAngle(bodyYaw, targetYaw);
                 remainingYaw = Mathf.Clamp(
@@ -428,186 +466,280 @@
 
             private void TickInvestigate(in RuntimeTickContext context)
             {
+                Debug.Log("State : Investigate");
             }
 
             private void TickChase(in RuntimeTickContext context)
             {
+                // Chase 중 플레이어가 보인다면
                 if (playerTransform != null && isPlayerVisible)
                 {
-                    Vector3 playerDelta = playerTransform.position - lastKnownPlayerPosition;
-                    if (playerDelta.sqrMagnitude > 0.01f)
-                    {
-                        lastKnownPlayerDirection = playerDelta.normalized;
-                    }
+                    // 마지막으로 본 플레이어 위치와 방향을 갱신
+                    lastKnownPlayerDirection =
+                        (playerTransform.position - lastKnownPlayerPosition).normalized;
 
-                    // 마지막 본 플레이어의 위치 할당
                     lastKnownPlayerPosition = playerTransform.position;
-                    alertness = settings.AlertMax;
+                    lastKnownPlayerSightingTime = context.CurrentTime;
 
-                    FaceTarget(playerTransform.position, context.DeltaTime);
+                    alertness = settings.AlertMax;
+                    agent.updateRotation = false;
+                    FaceTarget(
+                        playerTransform.position,
+                        context.DeltaTime);
                 }
+                // Chase 중 플레이어가 보이지 않는다면
                 else
                 {
-                    // 플레이어에 대한 시야를 잃었다면, alertness를 조금씩 깎는다
-                    alertness -= settings.ChaseAlertDecreaseSpeed * context.DeltaTime;
-                    FaceTarget(lastKnownPlayerPosition, context.DeltaTime);
-
-                    // 놓친 후 alertness가 0까지 내려갔다면,
-                    // 마지막으로 놓친 곳으로 돌아가 주위를 Search한다
-                    if (alertness <= 0f)
+                    // 몸통은 길을 향하고, 시선은 수평으로 돌아온다
+                    agent.updateRotation = true;
+                    headTransform.localRotation = Quaternion.identity;
+                    lookPitch = Mathf.MoveTowardsAngle(
+                        lookPitch, 0f, settings.HeadTurnSpeed * context.DeltaTime);
+                    
+                    // 시야를 잃은 채, 너무 오래 chase 중이라면 탐색으로 넘긴다
+                    if (context.CurrentTime - lastKnownPlayerSightingTime >=
+                        settings.StuckDuration)
                     {
-                        alertness = 0f;
-
-                        float whichSide = Vector3.Dot(transform.right, lastKnownPlayerDirection);
-                        searchSweepSign = whichSide >= 0f ? 1 : -1;
-
                         ChangeState(EnemyState.Search);
                         return;
                     }
                 }
 
                 if (!agent.isOnNavMesh) return;
-                
-                // 경로가 막히는 등, chase에 갇히는 경우를 배제하기 위해 도달하지 못하는 시간 측정
-                bool isPathBlocked = !agent.pathPending && agent.hasPath &&
-                                     agent.pathStatus != NavMeshPathStatus.PathComplete;
 
-                if (isPathBlocked)
-                {
-                    stuckTimer += context.DeltaTime;
-
-                    if (stuckTimer >= settings.StuckDuration)
-                    {
-                        float whichSide = Vector3.Dot(transform.right, lastKnownPlayerDirection);
-                        searchSweepSign = whichSide >= 0 ? 1 : -1;
-
-                        ChangeState(EnemyState.Search);
-                        return;
-                    }
-                }
-
-                else
-                {
-                    stuckTimer = 0f;
-                }
-                
                 // 플레이어가 보이든 아니든 마지막 목격 위치를 향한다
-                // 아래가 무조건 참, 영벡터에서 시작
-                Vector3 toDestination = lastRequestedDestination - lastKnownPlayerPosition;
+                float destinationUpdateThresholdSqr =
+                    settings.DestinationUpdateThreshold *
+                    settings.DestinationUpdateThreshold;
 
-                if (toDestination.sqrMagnitude >
-                    settings.DestinationUpdateThreshold * settings.DestinationUpdateThreshold)
+                Vector3 toDestination =
+                    lastRequestedDestination -
+                    lastKnownPlayerPosition;
+
+                // 마지막 목격 위치가 바뀌었다면 목적지를 갱신한다
+                if (toDestination.sqrMagnitude >=
+                    destinationUpdateThresholdSqr)
                 {
-                    lastRequestedDestination = lastKnownPlayerPosition;
-                    agent.SetDestination(lastKnownPlayerPosition);
+                    bool isDestinationSet =
+                        agent.SetDestination(
+                            lastKnownPlayerPosition);
+
+                    if (isDestinationSet)
+                    {
+                        // 목적지 요청에 성공했을 때만 기록한다
+                        lastRequestedDestination =
+                            lastKnownPlayerPosition;
+                    }
+                    
+                    return;
+                }
+
+                // 마지막 목격 위치까지의 거리 계산
+                Vector3 toLastKnownPlayerPosition =
+                    lastKnownPlayerPosition -
+                    transform.position;
+
+                // Y축을 제거하기 전에 수직 거리 저장
+                float verticalDistance =
+                    Mathf.Abs(
+                        toLastKnownPlayerPosition.y);
+
+                // 수평 거리만 별도로 검사한다
+                toLastKnownPlayerPosition.y = 0f;
+
+                float horizontalArrivalThreshold =
+                    agent.stoppingDistance + settings.ArrivalDistanceThreshold;
+
+                float verticalArrivalThreshold = 1.0f;
+
+                // 플레이어가 보이지 않고,
+                // 경로 계산이 끝났으며,
+                // 정상 경로로 마지막 목격 위치의 수평·수직 범위에 도착했고,
+                // 경로가 끝났거나 남은 거리가 정지 거리 이내라면
+                // 마지막 목격 위치에 도착했다고 판단한다
+                bool isReachedLastKnownPosition =
+                    !isPlayerVisible &&
+                    !agent.pathPending &&
+                    agent.pathStatus ==
+                        NavMeshPathStatus.PathComplete &&
+                    toLastKnownPlayerPosition.sqrMagnitude <=
+                        horizontalArrivalThreshold *
+                        horizontalArrivalThreshold &&
+                    verticalDistance <=
+                        verticalArrivalThreshold &&
+                    (
+                        !agent.hasPath ||
+                        agent.remainingDistance <=
+                        horizontalArrivalThreshold
+                    );
+
+                if (isReachedLastKnownPosition)
+                {
+                    ChangeState(EnemyState.Search);
+                    return;
                 }
             }
 
+
+
             private void TickAttack(in RuntimeTickContext context)
             {
+                Debug.Log("State : Attack");
             }
 
             private void TickSearch(in RuntimeTickContext context)
             {
-                // 이미 alert max -> 보이면 바로 추격
-                if (isPlayerVisible)
+                // Search 상태에서 player를 발견하면 즉시 추격
+                if (playerTransform != null && isPlayerVisible)
                 {
                     ChangeState(EnemyState.Chase);
                     return;
                 }
-
-                searchTimer += context.DeltaTime;
-                // 15초 이상을 Search했거나, 지정된 모든 searchPoint들을 방문했다면, 복귀
-                if (searchTimer >= searchDuration || visitedSearchPointsCount >= searchPointCount)
+                
+                // 경계도를 증가시키는 외부 자극이 없다면, 경계도가 감소한다
+                alertness -= settings.SearchAlertDecreaseSpeed * context.DeltaTime;
+                
+                if (alertness <= 0)
                 {
+                    alertness = 0f;
                     ChangeState(EnemyState.Patrol);
                     return;
                 }
-                
-                // 틱 1~N: 사라진 방향으로 시야 훑기
-                if (!isSweepDone)
+
+                if (!agent.isOnNavMesh) return;
+
+                // 경로가 계산 중이라면, 도착 판정을 금한다
+                if (agent.pathPending) return;
+
+                // 목적지가 없거나, 이미 도착했다면 다음 지점을 향한다
+                if (!agent.hasPath ||
+                    agent.remainingDistance <= agent.stoppingDistance + settings.ArrivalDistanceThreshold) 
                 {
-                    transform.rotation = Quaternion.RotateTowards(
-                        transform.rotation, searchSweepTarget, agent.angularSpeed * context.DeltaTime);
-                    
-                    if(Quaternion.Angle(transform.rotation, searchSweepTarget) < 1f)
-                    {
-                        isSweepDone = true;
-                        agent.updateRotation = true; // 이동 방향으로 자동 rotation
-                    }
-                    return;
+                    MoveToNextSearchPoint(context);
                 }
-
-                
-                if(!agent.isOnNavMesh || agent.pathPending) return;
-                // 틱 N+1~: 주변을 훑은 이후, 주변 지점들을 하나씩 search
-                // 길(목적지)이 없거나, 정상적으로 도착했거나, 길이 있지만 PathComplete가 아닌 경우 다음 지점 필요 -> true
-                bool isNextPointNeeded = !agent.hasPath ||
-                                 agent.remainingDistance <= agent.stoppingDistance + 0.1f ||
-                                 agent.pathStatus != NavMeshPathStatus.PathComplete;
-                
-                if (isNextPointNeeded)
-                {
-                    // 첫 진입(path 없음)이면 아직 방문한 곳이 없다
-                    if (agent.hasPath) visitedSearchPointsCount++;
-
-                    // 다음 방문지 설정
-                    if (TryGetSearchPoint(out Vector3 point)) agent.SetDestination(point);
-                }
-
             }
 
-            private bool TryGetSearchPoint(out Vector3 result)
+            /// <summary>
+            /// 다음 탐색 지점 지정
+            /// 지점을 찾지 못하면 목적지를 잡지 않으며,  다음 틱에 다시 시도
+            /// </summary>
+            private void MoveToNextSearchPoint(in RuntimeTickContext context)
             {
-                Vector3 randomPoint = lastKnownPlayerPosition + Random.insideUnitSphere * searchRadius;
+                if (TryGetSearchPoint(context, out Vector3 point))
+                {
+                    agent.SetDestination(point);
+                }
+            }
 
-                if (NavMesh.SamplePosition(randomPoint, out NavMeshHit hit, 2f, NavMesh.AllAreas))
+            
+
+            private bool TryGetSearchPoint(in RuntimeTickContext context, out Vector3 result)
+            {
+                // 시야를 잃은 뒤 흐른 시간
+                float timeElapsed = context.CurrentTime - lastKnownPlayerSightingTime;
+                
+                // 그 시간 동안 플레이어가 이동한 거리 추정, 추정치를 반경으로 삼는다
+                float searchRadius = Mathf.Min(
+                    settings.AssumedPlayerSpeed * settings.FleeDirectness * timeElapsed,
+                    settings.MaxSearchRadius);
+                
+                // 탐색 시간 대비 진행도, patrol 전이에 가까워질수록 부채꼴이 넓어진다
+                float searchProgress = Mathf.Clamp01(1f - alertness / settings.AlertMax);
+
+                Vector3 searchDirection = lastKnownPlayerDirection;
+                searchDirection.y = 0f; 
+
+                float halfAngle;
+                if (searchDirection.sqrMagnitude < 0.01f)
+                {
+                    // 사라진 방향을 모르면 처음부터 원으로 뒤진다
+                    searchDirection = transform.forward;
+                    halfAngle = 180f;
+                }
+                else
+                {
+                    searchDirection.Normalize();
+                    halfAngle = Mathf.Lerp(
+                        settings.SearchStartHalfAngle,
+                        settings.SearchEndHalfAngle,
+                        searchProgress
+                    );
+                }
+
+                // 랜덤 방향
+                Vector3 direction =
+                    Quaternion.Euler(0f, Random.Range(-halfAngle, halfAngle), 0f) * searchDirection;
+                // 그 방향의 랜덤 거리만큼 이동한 지점
+                Vector3 candidate =
+                    lastKnownPlayerPosition + direction * Random.Range(0f, searchRadius);
+
+                // 2m 내에 hit했다면 true, 아니면 마지막 위치라도 반환하며 false
+                if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, 2f, NavMesh.AllAreas))
                 {
                     result = hit.position;
                     return true;
                 }
-
                 result = lastKnownPlayerPosition;
                 return false;
             }
 
-            
+
+
+
             /// <summary>
             /// 디버깅용 메서드
             /// </summary>
             // 시야 확인용
-            private void OnDrawGizmosSelected()
-            {
-                if (settings == null || headTransform == null) return;
+                    private void OnDrawGizmosSelected()
+        {
+            if (settings == null || headTransform == null) return;
 
-                Vector3 eyePosition = headTransform.position;
-                Vector3 forwardFlat = new Vector3(transform.forward.x, 0f, transform.forward.z).normalized;
+            Vector3 eyePosition = headTransform.position;
+            Vector3 forwardFlat = new Vector3(transform.forward.x, 0f, transform.forward.z).normalized;
 
-                Gizmos.color = Color.white;
-                Gizmos.DrawWireSphere(eyePosition, settings.SightDistance);
+            // 거리 판정은 발밑 기준이므로 원도 발밑에 그린다
+            Gizmos.color = Color.white;
+            Gizmos.DrawWireSphere(transform.position, settings.SightDistance);
 
-                // 좌우 시야
-                Vector3 left  = Quaternion.AngleAxis(-settings.BothSideSightsAngle * 0.5f, Vector3.up) * forwardFlat;
-                Vector3 right = Quaternion.AngleAxis( settings.BothSideSightsAngle * 0.5f, Vector3.up) * forwardFlat;
+            // 지금 이 거리에서 실제로 적용되는 각도를 구한다
+            float distance = playerTransform != null
+                ? (playerTransform.position - transform.position).magnitude
+                : settings.SightBoostFarDistance;
+            float sightCloseness = Mathf.InverseLerp(
+                settings.SightBoostFarDistance, settings.SightBoostNearDistance, distance);
+            float halfFan = Mathf.Lerp(
+                settings.BothSideSightsAngle, settings.CloseSightAngle, sightCloseness) * 0.5f;
+            float upLimit = Mathf.Lerp(settings.UpSightAngle, settings.CloseUpSightAngle, sightCloseness);
+            float downLimit = Mathf.Lerp(settings.DownSightAngle, settings.CloseDownSightAngle, sightCloseness);
 
-                Gizmos.color = Color.cyan;
-                Gizmos.DrawRay(eyePosition, left  * settings.SightDistance);
-                Gizmos.DrawRay(eyePosition, right * settings.SightDistance);
+            // 좌우 시야
+            Vector3 left = Quaternion.AngleAxis(-halfFan, Vector3.up) * forwardFlat;
+            Vector3 right = Quaternion.AngleAxis(halfFan, Vector3.up) * forwardFlat;
 
-                // 상하 시야
-                Vector3 upward   = Quaternion.AngleAxis(-settings.UpSightAngle,   transform.right) * forwardFlat;
-                Vector3 downward = Quaternion.AngleAxis( settings.DownSightAngle, transform.right) * forwardFlat;
+            Gizmos.color = Color.cyan;
+            Gizmos.DrawRay(eyePosition, left * settings.SightDistance);
+            Gizmos.DrawRay(eyePosition, right * settings.SightDistance);
 
-                Gizmos.color = Color.yellow;
-                Gizmos.DrawRay(eyePosition, upward   * settings.SightDistance);
-                Gizmos.DrawRay(eyePosition, downward * settings.SightDistance);
+            // 시선 중심선, lookPitch만큼 기울어져 있다
+            Vector3 lookForward = Quaternion.AngleAxis(-lookPitch, transform.right) * forwardFlat;
 
-                if (playerTransform == null) return;
-                Vector3 targetPoint = playerTransform.position + Vector3.up * 0.9f;
-                Gizmos.color = isPlayerVisible ? Color.green : Color.red;
-                Gizmos.DrawLine(eyePosition, targetPoint);
-            }
+            Gizmos.color = Color.gray;
+            Gizmos.DrawRay(eyePosition, lookForward * settings.SightDistance);
 
+            // 상하 시야, 시선을 기준으로 벌어진다
+            Vector3 upward = Quaternion.AngleAxis(-upLimit, transform.right) * lookForward;
+            Vector3 downward = Quaternion.AngleAxis(downLimit, transform.right) * lookForward;
+
+            Gizmos.color = Color.yellow;
+            Gizmos.DrawRay(eyePosition, upward * settings.SightDistance);
+            Gizmos.DrawRay(eyePosition, downward * settings.SightDistance);
+
+            if (playerTransform == null) return;
+            Vector3 targetPoint = playerTransform.position + Vector3.up * playerAimHeight;
+            Gizmos.color = isPlayerVisible ? Color.green : Color.red;
+            Gizmos.DrawLine(eyePosition, targetPoint);
+        }
+    
             // 경계도 확인용
             private void OnDrawGizmos()
             {
@@ -617,7 +749,7 @@
                 Camera camera = Camera.current;
                 if (camera == null) return;
 
-                float fill = Mathf.Clamp01(alertness/ settings.AlertMax);
+                float fill = Mathf.Clamp01(alertness / settings.AlertMax);
 
                 Vector3 center = headTransform.position + Vector3.up * 0.8f;
                 Vector3 halfWidth = camera.transform.right * 0.35f;
