@@ -25,15 +25,18 @@ namespace ProjectHive.Integration.VerticalSlice
         private RunResult displayedResult;
         private string displayedResultMessage = string.Empty;
         private string selectedMapId = PrototypeGameSession.DefaultMapId;
+        private Vector2 stashScrollPosition;
 
         private GUIStyle titleStyle;
         private GUIStyle headingStyle;
         private GUIStyle labelStyle;
         private GUIStyle smallStyle;
         private GUIStyle buttonStyle;
+        private GUIStyle playButtonStyle;
         private GUIStyle selectedButtonStyle;
         private GUIStyle lockedButtonStyle;
         private GUIStyle slotStyle;
+        private GUIStyle tabStyle;
 
         public PrototypeFrontEndScreen CurrentScreen => currentScreen;
         public string SelectedMapId => selectedMapId;
@@ -48,7 +51,9 @@ namespace ProjectHive.Integration.VerticalSlice
             {
                 displayedResult = result;
                 displayedResultMessage = message;
-                currentScreen = PrototypeFrontEndScreen.Result;
+                currentScreen = result.Outcome == RunOutcome.Extracted
+                    ? PrototypeFrontEndScreen.CharacterStorage
+                    : PrototypeFrontEndScreen.Result;
             }
         }
 
@@ -136,24 +141,21 @@ namespace ProjectHive.Integration.VerticalSlice
             GUI.Label(new Rect(110f, 92f, 950f, 100f), "PROJECT HIVE", titleStyle);
             GUI.Label(new Rect(116f, 185f, 720f, 36f), "SURFACE PROTOTYPE", smallStyle);
 
-            Rect menu = new Rect(1320f, 380f, 420f, 350f);
+            Rect menu = new Rect(720f, 430f, 480f, 390f);
             DrawPanel(menu);
-            if (MenuButton(new Rect(1360f, 420f, 340f, 64f), "PLAY"))
+            if (GUI.Button(new Rect(784f, 470f, 352f, 70f), "PLAY", playButtonStyle))
                 OpenMapSelection();
-            if (MenuButton(new Rect(1360f, 500f, 340f, 64f), "은신처"))
+            if (MenuButton(new Rect(800f, 565f, 320f, 62f), "HIDEOUT"))
                 OpenShelter();
-            if (MenuButton(new Rect(1360f, 580f, 340f, 64f), "캐릭터"))
+            if (MenuButton(new Rect(800f, 645f, 320f, 62f), "CHARACTER"))
                 OpenCharacterStorage();
-            if (MenuButton(new Rect(1360f, 660f, 340f, 64f), "나가기"))
+            if (MenuButton(new Rect(800f, 725f, 320f, 62f), "EXIT"))
                 QuitGame();
-
-            GUI.Label(new Rect(112f, 970f, 1000f, 32f), "23:00  /  지상 활동 준비", smallStyle);
         }
 
         private void DrawMapSelection()
         {
-            DrawTopBar("지역 선택", "지상으로 이동할 지역을 선택한다");
-            DrawMapLines();
+            GUI.Label(new Rect(105f, 70f, 1100f, 72f), "MAP", titleStyle);
 
             bool selected = selectedMapId == PrototypeGameSession.DefaultMapId;
             if (GUI.Button(new Rect(470f, 395f, 310f, 78f), "●  도심 구역", selected ? selectedButtonStyle : buttonStyle))
@@ -175,19 +177,11 @@ namespace ProjectHive.Integration.VerticalSlice
         {
             DrawTopBar("장비 확인", "현재 장비를 가지고 지상으로 이동한다");
             DrawPanel(new Rect(120f, 210f, 760f, 650f));
-            GUI.Label(new Rect(165f, 250f, 650f, 46f), "장착 장비", headingStyle);
-
-            DrawLoadoutRow(165f, 335f, "총기", "Prototype Pistol");
-            DrawLoadoutRow(165f, 420f, "근접무기", "Knife");
-            DrawLoadoutRow(165f, 505f, "방어구", "Basic Armor");
-            DrawLoadoutRow(165f, 590f, "가방", "Small Backpack");
-            DrawLoadoutRow(165f, 675f, "안전 포켓", "2 Slots");
-            DrawLoadoutRow(165f, 760f, "퀵슬롯", "Bandage");
+            DrawTab(new Rect(155f, 180f, 210f, 58f), "PRESET");
+            DrawPresetContents(new Rect(165f, 270f, 670f, 560f), true);
 
             DrawPanel(new Rect(950f, 210f, 850f, 650f));
             GUI.Label(new Rect(1000f, 250f, 700f, 46f), "도심 구역", headingStyle);
-            GUI.Label(new Rect(1000f, 330f, 700f, 180f),
-                "남은 밤 동안 지상을 탐색하고\n개방 가능한 벙커를 찾아 돌아온다.\n\n사망하면 가지고 간 장비를 잃는다.", labelStyle);
 
             if (MenuButton(new Rect(120f, 935f, 260f, 62f), "뒤로"))
                 OpenMapSelection();
@@ -197,14 +191,10 @@ namespace ProjectHive.Integration.VerticalSlice
 
         private void DrawShelter()
         {
-            DrawTopBar("은신처", "시설을 선택해 필요한 물품을 준비한다");
-            DrawPanel(new Rect(170f, 240f, 1580f, 570f));
-            GUI.Label(new Rect(230f, 290f, 620f, 46f), "시설", headingStyle);
-
-            DrawFacility(new Rect(230f, 390f, 420f, 240f), "의료 장비 제작 시설");
-            DrawFacility(new Rect(750f, 390f, 420f, 240f), "무기 제작 시설");
-            DrawFacility(new Rect(1270f, 390f, 420f, 240f), "아이템 조합 시설");
-            GUI.Label(new Rect(230f, 700f, 1200f, 40f), "현재 프로토타입에서는 시설 선택 화면까지만 연결되어 있다.", smallStyle);
+            GUI.Label(new Rect(105f, 70f, 1100f, 72f), "HIDEOUT", titleStyle);
+            DrawPanel(new Rect(170f, 200f, 1580f, 610f));
+            GUIStyle centered = new GUIStyle(headingStyle) { alignment = TextAnchor.MiddleCenter };
+            GUI.Label(new Rect(170f, 200f, 1580f, 610f), "미구현", centered);
 
             if (MenuButton(new Rect(120f, 935f, 260f, 62f), "메인으로"))
                 OpenTitle();
@@ -212,37 +202,38 @@ namespace ProjectHive.Integration.VerticalSlice
 
         private void DrawCharacterStorage()
         {
-            DrawTopBar("캐릭터", "장착 장비와 창고");
-            DrawPanel(new Rect(100f, 190f, 620f, 720f));
-            DrawPanel(new Rect(770f, 190f, 1050f, 720f));
-            GUI.Label(new Rect(150f, 230f, 500f, 46f), "장착 장비", headingStyle);
-            GUI.Label(new Rect(820f, 230f, 700f, 46f), "창고", headingStyle);
+            DrawPanel(new Rect(20f, 100f, 640f, 800f));
+            DrawPanel(new Rect(680f, 100f, 1220f, 800f));
+            DrawTab(new Rect(45f, 60f, 220f, 58f), "PRESET");
+            DrawTab(new Rect(710f, 60f, 200f, 58f), "STASH");
 
-            DrawEquipmentSlot(new Rect(150f, 315f, 520f, 68f), "총기", "Prototype Pistol");
-            DrawEquipmentSlot(new Rect(150f, 400f, 250f, 110f), "근접무기", "Knife");
-            DrawEquipmentSlot(new Rect(420f, 400f, 250f, 110f), "방어구", "Basic");
-            DrawEquipmentSlot(new Rect(150f, 530f, 250f, 155f), "가방", "Small");
-            DrawEquipmentSlot(new Rect(420f, 530f, 250f, 155f), "안전 포켓", "2 Slots");
-            DrawEquipmentSlot(new Rect(150f, 705f, 250f, 110f), "퀵슬롯", "Bandage");
+            DrawPresetContents(new Rect(50f, 145f, 580f, 700f), false);
 
-            const int columns = 8;
-            const int rows = 5;
-            const float size = 86f;
-            const float gap = 14f;
+            Rect stashViewport = new Rect(720f, 145f, 1140f, 700f);
+            Rect stashContent = new Rect(0f, 0f, 1040f, 1210f);
+            stashScrollPosition = GUI.BeginScrollView(
+                stashViewport,
+                stashScrollPosition,
+                stashContent,
+                false,
+                true);
+
+            const int columns = 10;
+            const int rows = 12;
+            const float size = 88f;
+            const float gap = 12f;
             for (int row = 0; row < rows; row++)
             {
                 for (int column = 0; column < columns; column++)
                 {
-                    Rect slot = new Rect(820f + column * (size + gap), 315f + row * (size + gap), size, size);
+                    Rect slot = new Rect(10f + column * (size + gap), 10f + row * (size + gap), size, size);
                     GUI.Box(slot, string.Empty, slotStyle);
                 }
             }
+            GUI.EndScrollView();
 
-            GUI.Label(new Rect(820f, 835f, 860f, 38f), "아이템 데이터 연결 전 임시 창고", smallStyle);
-            if (MenuButton(new Rect(120f, 950f, 260f, 62f), "메인으로"))
+            if (MenuButton(new Rect(785f, 950f, 350f, 62f), "MAIN"))
                 OpenTitle();
-            if (MenuButton(new Rect(1490f, 950f, 330f, 62f), "PLAY"))
-                OpenMapSelection();
         }
 
         private void DrawResult()
@@ -276,19 +267,47 @@ namespace ProjectHive.Integration.VerticalSlice
             DrawRect(new Rect(105f, 185f, 1710f, 2f), new Color(0.42f, 0.46f, 0.45f, 0.7f));
         }
 
-        private void DrawMapLines()
+        private void DrawPresetContents(Rect bounds, bool compact)
         {
-            DrawRect(new Rect(612f, 430f, 535f, 3f), new Color(0.32f, 0.37f, 0.36f, 0.75f));
-            DrawRect(new Rect(1120f, 392f, 3f, 230f), new Color(0.32f, 0.37f, 0.36f, 0.75f));
-            DrawRect(new Rect(825f, 660f, 480f, 3f), new Color(0.32f, 0.37f, 0.36f, 0.75f));
-            DrawRect(new Rect(770f, 430f, 3f, 325f), new Color(0.32f, 0.37f, 0.36f, 0.75f));
-        }
+            float gap = compact ? 10f : 12f;
+            float weaponHeight = compact ? 58f : 68f;
+            float columnWidth = (bounds.width - gap * 2f) / 3f;
 
-        private void DrawLoadoutRow(float x, float y, string slotName, string itemName)
-        {
-            GUI.Box(new Rect(x, y, 650f, 64f), string.Empty, slotStyle);
-            GUI.Label(new Rect(x + 20f, y + 10f, 180f, 44f), slotName, smallStyle);
-            GUI.Label(new Rect(x + 210f, y + 10f, 410f, 44f), itemName, labelStyle);
+            DrawEquipmentSlot(
+                new Rect(bounds.x, bounds.y, bounds.width, weaponHeight),
+                "1번 무기",
+                "Prototype Pistol");
+            DrawEquipmentSlot(
+                new Rect(bounds.x, bounds.y + weaponHeight + gap, bounds.width, weaponHeight),
+                "2번 무기",
+                "—");
+
+            float equipmentY = bounds.y + (weaponHeight + gap) * 2f;
+            DrawEquipmentSlot(
+                new Rect(bounds.x, equipmentY, columnWidth, columnWidth),
+                "근접무기",
+                "Knife");
+            DrawEquipmentSlot(
+                new Rect(bounds.x + columnWidth + gap, equipmentY, columnWidth, columnWidth),
+                "투척물",
+                "—");
+
+            float stackedHeight = (columnWidth - gap) * 0.5f;
+            float thirdColumnX = bounds.x + (columnWidth + gap) * 2f;
+            DrawEquipmentSlot(
+                new Rect(thirdColumnX, equipmentY, columnWidth, stackedHeight),
+                "방어구",
+                "Basic Armor");
+            DrawEquipmentSlot(
+                new Rect(thirdColumnX, equipmentY + stackedHeight + gap, columnWidth, stackedHeight),
+                "가방",
+                "Small Backpack");
+
+            float pocketY = equipmentY + columnWidth + (compact ? 12f : 20f);
+            GUI.Label(new Rect(bounds.x, pocketY, 220f, 34f), "안전 포켓", smallStyle);
+            float pocketSize = compact ? 68f : 82f;
+            GUI.Box(new Rect(bounds.x, pocketY + 36f, pocketSize, pocketSize), string.Empty, slotStyle);
+            GUI.Box(new Rect(bounds.x + pocketSize + gap, pocketY + 36f, pocketSize, pocketSize), string.Empty, slotStyle);
         }
 
         private void DrawEquipmentSlot(Rect rect, string slotName, string itemName)
@@ -298,10 +317,11 @@ namespace ProjectHive.Integration.VerticalSlice
             GUI.Label(new Rect(rect.x + 14f, rect.y + 39f, rect.width - 28f, rect.height - 44f), itemName, labelStyle);
         }
 
-        private void DrawFacility(Rect rect, string facilityName)
+        private void DrawTab(Rect rect, string label)
         {
-            GUI.Box(rect, string.Empty, slotStyle);
-            GUI.Label(new Rect(rect.x + 25f, rect.y + 25f, rect.width - 50f, rect.height - 50f), facilityName, headingStyle);
+            DrawRect(rect, new Color(0.055f, 0.065f, 0.068f, 1f));
+            DrawRect(new Rect(rect.x, rect.y, rect.width, 2f), new Color(0.5f, 0.55f, 0.53f, 0.7f));
+            GUI.Label(rect, label, tabStyle);
         }
 
         private bool MenuButton(Rect rect, string text)
@@ -376,6 +396,10 @@ namespace ProjectHive.Integration.VerticalSlice
                 hover = { textColor = Color.white },
                 active = { textColor = Color.white }
             };
+            playButtonStyle = new GUIStyle(buttonStyle)
+            {
+                fontSize = 27
+            };
             selectedButtonStyle = new GUIStyle(buttonStyle)
             {
                 fontSize = 26,
@@ -388,6 +412,11 @@ namespace ProjectHive.Integration.VerticalSlice
             slotStyle = new GUIStyle(GUI.skin.box)
             {
                 normal = { textColor = new Color(0.8f, 0.84f, 0.82f, 1f) }
+            };
+            tabStyle = new GUIStyle(headingStyle)
+            {
+                fontSize = 24,
+                alignment = TextAnchor.MiddleCenter
             };
         }
 
