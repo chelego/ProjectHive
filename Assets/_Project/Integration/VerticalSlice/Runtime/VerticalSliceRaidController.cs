@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using ProjectHive.Combat;
 using ProjectHive.Core.Contracts;
 using ProjectHive.Core.Runtime;
+using ProjectHive.Integration.VerticalSlice;
 using ProjectHive.Interaction;
 using ProjectHive.Player;
 using UnityEngine;
@@ -99,7 +100,8 @@ namespace ProjectHive.Gameplay.Raid
                 sunriseLight.intensity = Mathf.Lerp(0f, 12f, Mathf.Clamp01(sunriseElapsed / 3f));
             }
 
-            if (ended && Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame)
+            if (ended && PrototypeGameSession.Instance == null &&
+                Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame)
                 SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
         }
 
@@ -212,6 +214,13 @@ namespace ProjectHive.Gameplay.Raid
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
             Debug.Log($"[VerticalSlice] Raid ended: success={success}, result={message}", this);
+
+            PrototypeGameSession session = PrototypeGameSession.Instance;
+            if (session != null)
+            {
+                bool timeExpired = !success && raidClock != null && raidClock.IsExpired;
+                session.ResolveRaid(success, timeExpired, message);
+            }
         }
 
         private void OnValidate()

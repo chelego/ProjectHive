@@ -25,6 +25,7 @@ namespace ProjectHive.Editor.Integration
         private const string PlayerScenePath = "Assets/Scenes/SampleScene.unity";
         private const string MobScenePath = "Assets/_Project/Scenes/Mob_AI_JH.unity";
         private const string OutputScenePath = "Assets/_Project/Integration/VerticalSlice/Scenes/VerticalSlice.unity";
+        private const string FrontEndScenePath = "Assets/_Project/Integration/VerticalSlice/Scenes/PrototypeFrontEnd.unity";
         private const string NavMeshFolderPath = "Assets/_Project/Integration/VerticalSlice/Scenes/VerticalSlice";
         private const string NavMeshDataPath = NavMeshFolderPath + "/NavMesh-Raid.asset";
         private const string RuntimeBudgetPath = "Assets/_Project/Data/Runtime/RuntimeBudgetSettings.asset";
@@ -47,29 +48,32 @@ namespace ProjectHive.Editor.Integration
             FirstPersonMotor player = ClonePlayer(targetScene);
             List<PrototypeExtractionGate> gates = ConfigureBunkers(targetScene);
 
-            GameObject runtimeRoot = new GameObject("_VerticalSliceRuntime");
-            SceneManager.MoveGameObjectToScene(runtimeRoot, targetScene);
-
-            GameRuntime gameRuntime = runtimeRoot.AddComponent<GameRuntime>();
+            GameObject gameRuntimeRoot = new GameObject("_GameRuntime");
+            SceneManager.MoveGameObjectToScene(gameRuntimeRoot, targetScene);
+            GameRuntime gameRuntime = gameRuntimeRoot.AddComponent<GameRuntime>();
             SerializedObject gameRuntimeSerialized = new SerializedObject(gameRuntime);
             gameRuntimeSerialized.FindProperty("targetFrameRate").intValue = 90;
             gameRuntimeSerialized.ApplyModifiedPropertiesWithoutUndo();
 
-            RuntimeCoordinator coordinator = runtimeRoot.AddComponent<RuntimeCoordinator>();
+            GameObject coordinatorRoot = new GameObject("_RuntimeCoordinator");
+            SceneManager.MoveGameObjectToScene(coordinatorRoot, targetScene);
+            RuntimeCoordinator coordinator = coordinatorRoot.AddComponent<RuntimeCoordinator>();
             RuntimeBudgetSettings budgetSettings = AssetDatabase.LoadAssetAtPath<RuntimeBudgetSettings>(RuntimeBudgetPath);
             coordinator.Configure(budgetSettings, player.transform);
 
+            GameObject runtimeRoot = new GameObject("_VerticalSliceRuntime");
+            SceneManager.MoveGameObjectToScene(runtimeRoot, targetScene);
             RaidClock raidClock = runtimeRoot.AddComponent<RaidClock>();
             Light sunriseLight = CreateSunriseLight(targetScene);
             VerticalSliceRaidController controller = runtimeRoot.AddComponent<VerticalSliceRaidController>();
-            controller.Configure(raidClock, player, coordinator, sunriseLight, gates.ToArray());
+            controller.Configure(raidClock, player, null, sunriseLight, gates.ToArray());
 
             VerticalSliceHud hud = runtimeRoot.AddComponent<VerticalSliceHud>();
             hud.Configure(controller);
 
             int breckenAgentTypeId = GetBreckenAgentTypeId();
             NavMeshSurface surface = CreateAndBakeNavigation(targetScene, breckenAgentTypeId);
-            BreckenAI[] breckens = CloneBreckens(targetScene, player.transform, coordinator);
+            BreckenAI[] breckens = CloneBreckens(targetScene, player.transform, null);
             runtimeRoot.AddComponent<PrototypeEnemyActivator>().Configure(breckens, player.transform);
 
             EditorSceneManager.MarkSceneDirty(targetScene);
@@ -310,9 +314,14 @@ namespace ProjectHive.Editor.Integration
 
         private static void ConfigureBuildSettings()
         {
-            List<EditorBuildSettingsScene> scenes = EditorBuildSettings.scenes.ToList();
-            scenes.RemoveAll(scene => scene.path == OutputScenePath);
-            scenes.Insert(0, new EditorBuildSettingsScene(OutputScenePath, true));
+            List<EditorBuildSettingsScene> remaining = EditorBuildSettings.scenes
+                .Where(scene => scene.path != FrontEndScenePath && scene.path != OutputScenePath)
+                .ToList();
+            List<EditorBuildSettingsScene> scenes = new List<EditorBuildSettingsScene>();
+            if (AssetDatabase.LoadMainAssetAtPath(FrontEndScenePath) != null)
+                scenes.Add(new EditorBuildSettingsScene(FrontEndScenePath, true));
+            scenes.Add(new EditorBuildSettingsScene(OutputScenePath, true));
+            scenes.AddRange(remaining);
             EditorBuildSettings.scenes = scenes.ToArray();
         }
     }
