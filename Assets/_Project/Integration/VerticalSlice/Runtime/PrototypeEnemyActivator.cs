@@ -1,6 +1,7 @@
 using System.Collections;
 using ProjectHive.AI.Mob;
 using ProjectHive.Player;
+using Unity.AI.Navigation;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -13,6 +14,7 @@ namespace ProjectHive.Gameplay.Raid
         [SerializeField] private BreckenAI[] enemies;
         [SerializeField] private Transform player;
         [SerializeField, Min(1f)] private float minimumPlayerDistance = 35f;
+        [SerializeField, Min(1f)] private float navMeshSearchRadius = 120f;
 
         public void Configure(BreckenAI[] breckens, Transform playerTransform)
         {
@@ -31,6 +33,8 @@ namespace ProjectHive.Gameplay.Raid
                 FirstPersonMotor motor = FindFirstObjectByType<FirstPersonMotor>();
                 player = motor != null ? motor.transform : null;
             }
+
+            EnsureRuntimeNavMesh();
 
             for (int i = 0; i < enemies.Length; i++)
             {
@@ -56,9 +60,9 @@ namespace ProjectHive.Gameplay.Raid
                     }
                 }
 
-                if (!NavMesh.SamplePosition(desiredPosition, out NavMeshHit hit, 40f, agent.areaMask))
+                if (!TryFindNavMeshPosition(desiredPosition, enemy.transform.position, agent.areaMask, out NavMeshHit hit))
                 {
-                    Debug.LogError($"[VerticalSlice] {enemy.name} 주변에서 NavMesh를 찾지 못했습니다.", enemy);
+                    Debug.LogError($"[VerticalSlice] Could not place {enemy.name} on the NavMesh.", enemy);
                     continue;
                 }
 
@@ -69,9 +73,40 @@ namespace ProjectHive.Gameplay.Raid
             }
         }
 
+        private static void EnsureRuntimeNavMesh()
+        {
+            NavMeshTriangulation triangulation = NavMesh.CalculateTriangulation();
+            if (triangulation.vertices != null && triangulation.vertices.Length > 0)
+                return;
+
+            NavMeshSurface[] surfaces = FindObjectsByType<NavMeshSurface>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (NavMeshSurface surface in surfaces)
+            {
+                if (surface == null)
+                    continue;
+
+                surface.BuildNavMesh();
+            }
+        }
+
+        private bool TryFindNavMeshPosition(Vector3 desiredPosition, Vector3 originalPosition, int areaMask, out NavMeshHit hit)
+        {
+            if (NavMesh.SamplePosition(desiredPosition, out hit, navMeshSearchRadius, areaMask))
+                return true;
+
+            if (NavMesh.SamplePosition(originalPosition, out hit, navMeshSearchRadius, areaMask))
+                return true;
+
+            if (player != null && NavMesh.SamplePosition(player.position, out hit, navMeshSearchRadius, areaMask))
+                return true;
+
+            return NavMesh.SamplePosition(Vector3.zero, out hit, navMeshSearchRadius * 2f, areaMask);
+        }
+
         private void OnValidate()
         {
             minimumPlayerDistance = Mathf.Max(1f, minimumPlayerDistance);
+            navMeshSearchRadius = Mathf.Max(1f, navMeshSearchRadius);
         }
     }
 }

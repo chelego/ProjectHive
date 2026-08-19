@@ -203,7 +203,7 @@ namespace ProjectHive.Editor.Integration
             surface.layerMask = ~0;
 
             if (!AssetDatabase.IsValidFolder(NavMeshFolderPath))
-                AssetDatabase.CreateFolder("Assets/_Project/Scenes", "VerticalSlice");
+                AssetDatabase.CreateFolder("Assets/_Project/Integration/VerticalSlice/Scenes", "VerticalSlice");
             if (AssetDatabase.LoadMainAssetAtPath(NavMeshDataPath) != null)
                 AssetDatabase.DeleteAsset(NavMeshDataPath);
 
