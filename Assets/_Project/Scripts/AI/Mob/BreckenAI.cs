@@ -7,12 +7,13 @@
     using ProjectHive.Core.Events;
     using ProjectHive.Core.Contracts;
     using System;
+    using ProjectHive.AI.Hive;
     using Random = UnityEngine.Random;
 
     namespace ProjectHive.AI.Mob
     {
         [RequireComponent(typeof(NavMeshAgent))]
-        public sealed class BreckenAI : MonoBehaviour, IRuntimeTickable, IAssassinationStateProvider
+        public sealed class BreckenAI : MonoBehaviour, IRuntimeTickable, IAssassinationStateProvider, IHiveControllable
         {
             private enum EnemyState
             {
@@ -44,6 +45,20 @@
             private const float PlayerHeight = 1.8f; // 플레이어 키, 1.8m, 임시, 차후 웅크리기 등에 맞춰 변경
             private float playerAimHeight = PlayerHeight * 0.7f; // 브레켄이 플레이어를 바라보는 플레이어의 몸통 각도, 명치 부근을 바라본다
 
+            [Header("Hear")]
+            // 소리에 의한 판단은 틱 주기에 이루어져야 하므로, 콜백이 적어두고 틱이 읽어 간다
+            private bool isHeardNoise;
+            private Vector3 heardNoisePosition;
+            private float heardNoiseOccurredTime;
+            // 들은 순간의 거리 / 소리 반경 - 0이면 바로 앞, 1이면 한계점
+            // 들은 시점에 기록
+            private float heardNoiseDistanceRatio;
+            // 들은 소리를 얼마나 오래 기억할 지
+            // TODO 플레이테스트 후 settings로
+            private const float NoiseMemoryDuration = 5f; 
+
+            
+            
             [Header("Enemy State")]
             [SerializeField]
             private EnemyState currentState = EnemyState.Idle;
@@ -55,9 +70,7 @@
             private float patrolSweepOffset; // 기준점으로부터 머리가 틀어진 각도, 기준은 도착한 순간 몸통의 정면
             private int patrolSweepPhase; // 0: 한쪽끝, 1: 반대쪽 끝
             private int patrolSweepSign = -1;
-
-
-
+            
             [Header("State - Chase")]
             [SerializeField, Min(0f)]
             private float attackRange = 2f; // 공격 범위, 임시값
@@ -66,6 +79,17 @@
             [Header("State - Search")]
             [SerializeField, Min(1)] private int searchPointCount = 3;
             private int visitedSearchPointsCount;
+
+            
+            [Header("State - Investigate")]
+            // 지금 확인하러 가는 지점과 훑을 반경
+            // 직접 들은 소리가 채웠는지, 하이브에 명령에 의해 채워졌는지 구분하지 않는다
+            private Vector3 investigatePosition;
+            private float investigateRadius;
+            // 수색 임무를 만들어낸 자극의 발생 시각. 최신 정보를 더 우선해서 받아들이며, 타임아웃을 결정
+            private float investigateStimulusTime;
+            private int visitedInvestigatePointCount;
+
 
 
             private Vector3 lastKnownPlayerPosition;
@@ -78,8 +102,34 @@
 
             [SerializeField] private float alertness;
 
-            [SerializeField] private RuntimeCoordinator runtimeCoordinator;
 
+            [Header("Hive")]
+            [SerializeField] private HiveUnitRegistry hiveUnitRegistry;
+
+            [SerializeField] private HiveUnitRole hiveRole = HiveUnitRole.Hunter;
+            // Attack 구현 이전까지 Attack 능력은 켜지 않는다
+            [SerializeField] private HiveUnitCapabilities hiveCapabilities =
+                HiveUnitCapabilities.GroundMovement |
+                HiveUnitCapabilities.Investigate |
+                HiveUnitCapabilities.Guard;
+
+            // 하이브가 스냅샷에 담아가는 값, 0이면 수행 중인 명령 없음
+            private int currentHiveCommandSequence;
+            // 명령도 콜백이 적어두고 틱이 읽어간다
+            private bool hasPendingCommand;
+            private Vector3 pendingCommandPosition;
+            private float pendingCommandRadius;
+            // 소리가 세상에 발생한 시각을 명령 하달에 그대로 사용
+            private float pendingCommandIssuedTime;
+
+            // 소리 반응, 명령 수락, 하이브 후보 자격을 이것으로 판별
+            private bool CanReactToStimulus =>
+                !isPlayerVisible &&
+                currentState != EnemyState.Chase &&
+                currentState != EnemyState.Attack;
+
+            
+            [SerializeField] private RuntimeCoordinator runtimeCoordinator;
             public bool RuntimeTickEnabled => isActiveAndEnabled;
             public Transform RuntimeTransform => transform;
             public bool UseDistanceScaling => true;
@@ -91,7 +141,27 @@
 
             public void RuntimeTick(in RuntimeTickContext context)
             {
+                // 오래된 소리라면 잊는다
+                if (isHeardNoise && context.CurrentTime - heardNoiseOccurredTime > NoiseMemoryDuration)
+                {
+                    isHeardNoise = false;
+                }
                 isPlayerVisible = CanSeePlayer();
+
+                // 자극 판정은 상태와 무관하게 RuntimeTick에서 판별
+                // 반응을 하지 못하는 동안 들어온 자극은 버린다
+                // chase -> search로 전이해버리면 터지기 때문
+                if (!CanReactToStimulus)
+                {
+                    isHeardNoise = false;
+                    hasPendingCommand = false;
+                }
+                else if(TryTakeInvestigateOrder(currentState == EnemyState.Investigate))
+                {
+                    visitedInvestigatePointCount = 0;
+                    if (agent.isOnNavMesh) agent.ResetPath();
+                    ChangeState(EnemyState.Investigate); // 이미 investigate라면 무시
+                }
 
                 switch (currentState)
                 {
@@ -115,6 +185,12 @@
                 }
                 // reset
                 lookPitch = 0f;
+                isPlayerVisible = false;
+                currentHiveCommandSequence = 0;
+                isHeardNoise = false;
+                hasPendingCommand = false;
+
+
 
                 // patrol reset
                 isPatrolWaiting = false;
@@ -125,7 +201,7 @@
                 patrolSweepSign = -1;
 
                 //chase reset
-
+                                
                 ResolveServices();
                 patrolSpawnPosition = transform.position; // 순찰 기준점, 풀에서 꺼낼 때마다 새로운 기준점
                                                           // 브레켄이 죽은 후 풀 반환 이후
@@ -134,6 +210,10 @@
                 alertness = 0f;
 
                 visitedSearchPointsCount = 0;
+                investigatePosition = Vector3.zero;
+                investigateRadius = 0f;
+                investigateStimulusTime = 0f;
+                visitedInvestigatePointCount = 0;
                 lastKnownPlayerPosition = Vector3.zero;
                 lastKnownPlayerDirection = Vector3.zero;
                 lastKnownPlayerSightingTime = 0f;
@@ -144,6 +224,11 @@
                 headTransform.localRotation = Quaternion.identity; // Chase에서 바뀐 머리를 정면으로 초기화
 
 
+                hiveUnitRegistry?.Register(this);
+                if (GameEventBus.Instance != null)
+                {
+                    GameEventBus.Instance.NoiseEmitted += OnNoiseEmitted;
+                }
                 if (runtimeCoordinator == null)
                 {
                     Debug.LogWarning("RuntimeCoordinator를 찾지 못해 .register 실패", this);
@@ -159,6 +244,13 @@
                 {
                     runtimeCoordinator.Unregister(this);
                 }
+
+                if (GameEventBus.Instance != null)
+                {
+                    GameEventBus.Instance.NoiseEmitted -= OnNoiseEmitted;
+                }
+
+                hiveUnitRegistry?.Unregister(this);
             }
 
             private void ResolveServices()
@@ -167,6 +259,45 @@
                 {
                     runtimeCoordinator = RuntimeCoordinator.Instance;
                 }
+                if (hiveUnitRegistry == null) 
+                {
+                    hiveUnitRegistry = FindFirstObjectByType<HiveUnitRegistry>();
+                }
+            }
+
+            public HiveUnitSnapshot GetHiveUnitSnapshot()
+            {
+                return new HiveUnitSnapshot(
+                    gameObject.GetInstanceID(),
+                    transform.position,
+                    hiveRole,
+                    hiveCapabilities,
+                    settings.ChaseSpeed,
+                    CanReactToStimulus, // 소리에 반응하는 것과 같은 기준으로 설정
+                    currentHiveCommandSequence);
+            }
+
+            public bool TryAcceptHiveCommand(in HiveCommand command)
+            {
+                if (command.Kind == HiveCommandKind.None) return false;
+                if (command.IsExpired(Time.time)) return false;
+                if (!CanReactToStimulus) return false;
+
+                if (!NavMesh.SamplePosition(
+                    command.TargetPosition, out NavMeshHit hit,
+                    settings.InvestigateMaxRadius, NavMesh.AllAreas
+                ))
+                {
+                    return false;
+                }
+                
+                // 판단은 틱에서 수행, 여기서는 기록만
+                hasPendingCommand = true;
+                pendingCommandPosition = hit.position;
+                pendingCommandRadius = command.Radius;
+                pendingCommandIssuedTime = command.IssuedAt;
+                currentHiveCommandSequence = command.Sequence;
+                return true;
             }
 
             // 시야는 거리로 -> y축을 살려 대각선 계산
@@ -214,6 +345,109 @@
                 return true;
             }
 
+            /// <summary>
+            /// 소리를 듣는다, 기록만 한 후 판단은 틱 주기에 맞춘다
+            /// </summary>
+            private void OnNoiseEmitted(in NoiseEvent noiseEvent)
+            {
+                // 동족이 낸 소리에 반응하지 않는다
+                if (noiseEvent.Affiliation == NoiseAffiliation.Monster) return;
+                
+                // 소리가 닿는 반경 밖이라면, 듣지 못한다
+                Vector3 toNoise = noiseEvent.Position - transform.position;
+                if (toNoise.sqrMagnitude >= noiseEvent.Radius * noiseEvent.Radius) return;
+
+                // 소리 위치 정보를 navmesh 바닥으로 꽂는다
+                // 갈 수 없는 장소라면 소리를 버린다
+                if (!NavMesh.SamplePosition(
+                    noiseEvent.Position, out NavMeshHit hit,
+                    settings.InvestigateMaxRadius, NavMesh.AllAreas
+                ))
+                {
+                    return;
+                }
+                
+                // 더 최근 소리가 이전 소리를 덮어씌운다
+                isHeardNoise = true;
+                heardNoisePosition = hit.position;
+                heardNoiseOccurredTime = noiseEvent.OccurredAt;
+                // 들은 소리의 최대 크기에 비례하여 내가 얼마나 가깝게 들었는지를 필드에 저장
+                // 이 값을 이용하여 수색 반경을 넓히거나 좁힌다
+                heardNoiseDistanceRatio = noiseEvent.Radius > 0f 
+                    ? Mathf.Clamp01(toNoise.magnitude / noiseEvent.Radius)
+                    : 1f;
+                
+                Debug.Log($"소리 들음: {noiseEvent.Category} at {noiseEvent.Position} (거리 {toNoise.magnitude:F1}m)", this);
+            }
+
+            /// <summary>
+            /// 대기 중인 소리와 명령 중 나중에 발생한 쪽을 현재 작업으로 삼는다
+            /// 새 작업이 잡혔다면 true, 병합하거나 버렸다면 false
+            /// </summary>
+            private bool TryTakeInvestigateOrder(bool isAlreadyInvestigating)
+            {
+                if (!isHeardNoise && !hasPendingCommand) return false;
+                
+                float mergeSqr = Mathf.Pow(settings.InvestigateMergeDistance, 2);
+
+                // 도착 순서가 아닌 발생 시각으로 비교
+                // 더 최신 정보이거나, 완전히 같은 사건이라면 브레켄의 귀로 판단
+                bool takeNoise = isHeardNoise &&
+                                 (!hasPendingCommand || heardNoiseOccurredTime >= pendingCommandIssuedTime);
+
+                
+                // 같은 사건이 두 개의 경로로 들어왔다면 내 귀를 신뢰
+                bool isSameEvent = isHeardNoise && hasPendingCommand &&
+                                   (heardNoisePosition - pendingCommandPosition).sqrMagnitude <= mergeSqr;
+                
+                if (isSameEvent) takeNoise = true;
+
+                // 소리를 들었나 ? 들음 : 듣지 않음
+                Vector3 position = takeNoise ? heardNoisePosition : pendingCommandPosition;
+                float radius = takeNoise ? GetHeardNoiseRadius() : pendingCommandRadius;
+                float stimulusTime = isSameEvent 
+                    ? Mathf.Max(heardNoiseOccurredTime, pendingCommandIssuedTime)
+                    : (takeNoise ? heardNoiseOccurredTime : pendingCommandIssuedTime);
+                bool isHeard = takeNoise;
+                
+                // 선택하지 않은 쪽은 더 오래된 자극이므로 버린다
+                isHeardNoise = false;
+                hasPendingCommand = false;
+
+                if (isAlreadyInvestigating)
+                {
+                    // 사실상 같은 곳이라고 판단하면 다시 출발하지 않는다
+                    // 조사 기한을 늘리고 처음부터 다시 훑는다
+                    if ((position - investigatePosition).sqrMagnitude <= mergeSqr)
+                    {
+                        investigateStimulusTime = Mathf.Max(investigateStimulusTime, stimulusTime);
+                        if (isHeard) investigateRadius = radius;
+                        visitedInvestigatePointCount = 0;
+                        return false;
+                    }
+                    
+                    // 이미 더 최신의 자극으로 행동하고 있다면 무시
+                    if (stimulusTime <= investigateStimulusTime) return false;
+                }
+
+                investigatePosition = position;
+                investigateRadius = radius;
+                investigateStimulusTime = stimulusTime;
+                return true;
+            }
+
+            /// <summary>
+            /// 직접 들은 소리의 탐색 반경을 계산하여 반환
+            /// </summary>
+            private float GetHeardNoiseRadius()
+            {
+                return Mathf.Lerp(
+                    settings.InvestigateMinRadius,
+                    settings.InvestigateMaxRadius,
+                    heardNoiseDistanceRatio);
+            }
+            
+
             private void ChangeState(EnemyState next)
             {
                 if (currentState == next) return;
@@ -256,6 +490,15 @@
                         lookPitch = 0f;
                         break;
 
+                    case EnemyState.Investigate:
+                        agent.updateRotation = true;
+                        if (agent.isOnNavMesh) agent.ResetPath();
+                        agent.speed = settings.InvestigateSpeed;
+                        visitedInvestigatePointCount = 0;
+                        headTransform.localRotation = Quaternion.identity;
+                        lookPitch = 0f;
+                        break;
+
                     default:
                         agent.updateRotation = true;
                         lookPitch = 0f;
@@ -290,7 +533,8 @@
                     ChangeState(EnemyState.Alert);
                     return;
                 }
-
+                
+                
                 if (!agent.isOnNavMesh) return;
 
                 if (isPatrolWaiting)
@@ -466,8 +710,87 @@
 
             private void TickInvestigate(in RuntimeTickContext context)
             {
-                Debug.Log("State : Investigate");
+                // 주의를 기울이는 중이므로
+                // search와 동일하게 보이면 바로 쫓아간다
+                if (playerTransform != null && isPlayerVisible)
+                {
+                    lastKnownPlayerDirection =
+                        (playerTransform.position - lastKnownPlayerPosition).normalized;
+                    lastKnownPlayerPosition = playerTransform.position;
+                    lastKnownPlayerSightingTime = context.CurrentTime;
+
+                    alertness = settings.AlertMax;
+                    ChangeState(EnemyState.Chase);
+                    return;
+                }
+
+                if (!agent.isOnNavMesh) return;
+
+                if (context.CurrentTime - investigateStimulusTime >= settings.InvestigateTimeout)
+                {
+                    ChangeState(EnemyState.Patrol);
+                    return;
+                }
+
+                if (agent.pathPending) return;
+
+                bool hasArrived =
+                    !agent.hasPath ||
+                    agent.remainingDistance <= agent.stoppingDistance + settings.ArrivalDistanceThreshold;
+
+                if (!hasArrived) return;
+                
+                // 정해진 지점을 다 보았다면 순찰로 복귀
+                if (visitedInvestigatePointCount >= settings.InvestigatePointCount)
+                {
+                    ChangeState(EnemyState.Patrol);
+                    return;
+                }
+                
+                // 조사 지점 설정에 실패하면 다음 틱에 다시 시도
+                if (TryGetInvestigatePoint(out Vector3 point) && agent.SetDestination(point))
+                {
+                    visitedInvestigatePointCount++;
+                }
             }
+
+            /// <summary>
+            /// 첫 지점은 중심 근처에서 개체에서 갈라지는 자리
+            /// 이후 지점은 반경 안 무작위
+            /// </summary>
+            private bool TryGetInvestigatePoint(out Vector3 result)
+            {
+                if (visitedInvestigatePointCount == 0)
+                {
+                    Vector3 fromCenter = transform.position - investigatePosition;
+                    fromCenter.y = 0f;
+
+                    // 이미 구역 안이라면 spread원의 가장자리로 돌아갈 이유 x -> random 재개
+                    if (fromCenter.sqrMagnitude > investigateRadius * investigateRadius)
+                    {
+                        Vector3 entry = investigatePosition + fromCenter.normalized * investigateRadius;
+
+                        if (NavMesh.SamplePosition(entry, out NavMeshHit entryHit, 2f, NavMesh.AllAreas))
+                        {
+                            result = entryHit.position;
+                            return true;
+                        }
+                    }
+                }
+
+                Vector2 offset = Random.insideUnitCircle * investigateRadius;
+                Vector3 candidate = investigatePosition + new Vector3(offset.x, 0f, offset.y);
+
+                if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, 2f, NavMesh.AllAreas))
+                {
+                    result = hit.position;
+                    return true;
+                }
+
+                result = investigatePosition;
+                return false;
+            }
+            
 
             private void TickChase(in RuntimeTickContext context)
             {
@@ -490,6 +813,15 @@
                 // Chase 중 플레이어가 보이지 않는다면
                 else
                 {
+                    // 놓친 직후 잠깐은 플레이어를 향해 벽 너머를 투시한다 (8/17)
+                    // 보이지 않는 동안 목격 시간은 갱신하지 않는다
+                    if (IsInChaseClairvoyance(context))
+                    {
+                        lastKnownPlayerDirection =
+                            (playerTransform.position - lastKnownPlayerPosition).normalized;
+                        lastKnownPlayerPosition = playerTransform.position;
+                    }
+                    
                     // 몸통은 길을 향하고, 시선은 수평으로 돌아온다
                     agent.updateRotation = true;
                     headTransform.localRotation = Quaternion.identity;
@@ -507,45 +839,42 @@
 
                 if (!agent.isOnNavMesh) return;
 
-                // 플레이어가 보이든 아니든 마지막 목격 위치를 향한다
+                // 목격지점을 기반으로 한 위치로 향한다
+                Vector3 chaseDestination = GetChaseDestination(context);
+
                 float destinationUpdateThresholdSqr =
                     settings.DestinationUpdateThreshold *
                     settings.DestinationUpdateThreshold;
 
-                Vector3 toDestination =
-                    lastRequestedDestination -
-                    lastKnownPlayerPosition;
+                Vector3 toDestination = lastRequestedDestination - chaseDestination;
 
                 // 마지막 목격 위치가 바뀌었다면 목적지를 갱신한다
                 if (toDestination.sqrMagnitude >=
                     destinationUpdateThresholdSqr)
                 {
                     bool isDestinationSet =
-                        agent.SetDestination(
-                            lastKnownPlayerPosition);
+                        agent.SetDestination(chaseDestination);
 
                     if (isDestinationSet)
                     {
                         // 목적지 요청에 성공했을 때만 기록한다
                         lastRequestedDestination =
-                            lastKnownPlayerPosition;
+                            chaseDestination;
                     }
                     
                     return;
                 }
 
                 // 마지막 목격 위치까지의 거리 계산
-                Vector3 toLastKnownPlayerPosition =
-                    lastKnownPlayerPosition -
-                    transform.position;
+                Vector3 toChaseDestination = chaseDestination - transform.position;
 
                 // Y축을 제거하기 전에 수직 거리 저장
                 float verticalDistance =
                     Mathf.Abs(
-                        toLastKnownPlayerPosition.y);
+                        toChaseDestination.y);
 
                 // 수평 거리만 별도로 검사한다
-                toLastKnownPlayerPosition.y = 0f;
+                toChaseDestination.y = 0f;
 
                 float horizontalArrivalThreshold =
                     agent.stoppingDistance + settings.ArrivalDistanceThreshold;
@@ -562,7 +891,7 @@
                     !agent.pathPending &&
                     agent.pathStatus ==
                         NavMeshPathStatus.PathComplete &&
-                    toLastKnownPlayerPosition.sqrMagnitude <=
+                    toChaseDestination.sqrMagnitude <=
                         horizontalArrivalThreshold *
                         horizontalArrivalThreshold &&
                     verticalDistance <=
@@ -580,11 +909,69 @@
                 }
             }
 
+            /// <summary>
+            /// 개체 다수가 플레이어를 쫓을 때
+            /// 목표 근처에서 개체마다 다른 값을 돌려준다
+            /// 에이전트 반경 (현재 두 브레켄의 몸 둘레(반지름)0.5 + 0.5 = 1m) 때문에
+            /// 늦게 온 개체가 도착 판정 거리 이내(0.6m)로 들어가지 않는다
+            /// 즉 몬스터의 겹침 문제를 해결한다
+            /// </summary>
+            // todo 해시 기반이므로 방향이 겹치는 상황이 발생 가능, 차후 필요하다면 수정
+            private Vector3 GetSpreadDestination(Vector3 target, float radius)
+            {
+                if (radius <= 0f) return target;
+
+                int seed = unchecked(gameObject.GetInstanceID() * 397 ^ target.GetHashCode());
+                float angle = (seed & 1023) / 1023f * Mathf.PI * 2f;
+                float distance = radius * Mathf.Lerp(0.4f, 1f, ((seed >> 10) & 255) / 255f);
+
+                Vector3 candidate = target + new Vector3(
+                    Mathf.Cos(angle) * distance,
+                    0f,
+                    Mathf.Sin(angle) * distance);
+                
+                // 흩어진 목적지가 navmesh 밖이라면, 목적지를 그대로 사용한다
+                if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, 2f, NavMesh.AllAreas))
+                {
+                    return hit.position;
+                }
+
+                return target;
+            }
+
+            /// <summary>
+            /// 시야 내에 플레이어가 있다면 그대로 플레이어를 쫓고
+            /// 시야를 벗어났을 때만 흩어진다
+            /// </summary>
+            private Vector3 GetChaseDestination(in RuntimeTickContext context)
+            {
+                if (isPlayerVisible || IsInChaseClairvoyance(context)) return lastKnownPlayerPosition;
+
+                return GetSpreadDestination(lastKnownPlayerPosition, settings.ChaseSpreadRadius);
+            }
+
+            /// <summary>
+            /// 시야를 잃은 뒤 짧은 시간동안 투시(8/17 기준 2초)
+            /// 기본 시야 거리는 유지
+            /// </summary>
+            private bool IsInChaseClairvoyance(in RuntimeTickContext context)
+            {
+                if (playerTransform == null) return false;
+                
+                if (context.CurrentTime - lastKnownPlayerSightingTime >= settings.ChaseClairvoyanceDuration)
+                    return false;
+                
+                Vector3 toPlayer = playerTransform.position - transform.position;
+                return toPlayer.sqrMagnitude <= settings.SightDistance * settings.SightDistance;
+            }
+            
 
 
             private void TickAttack(in RuntimeTickContext context)
             {
                 Debug.Log("State : Attack");
+                ChangeState(EnemyState.Chase);
+                return;
             }
 
             private void TickSearch(in RuntimeTickContext context)

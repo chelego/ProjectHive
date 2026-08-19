@@ -6,9 +6,8 @@ namespace ProjectHive.AI.Mob
     [CreateAssetMenu(fileName = "mobAI", menuName = "Project Hive/MobAI/Mob AI Settings")]
     public class MobAISettings : ScriptableObject
     {
-
         [Header("Navi")] 
-        [SerializeField, Min(0f)] private float arrivalDistanceThreshold = 0.6f;
+        [SerializeField, Min(0f)] private float arrivalDistanceThreshold = 1.2f;
         
         [Header("Sight")]
         // 시야
@@ -67,6 +66,10 @@ namespace ProjectHive.AI.Mob
         // player가 시야 밖으로 벗어난 이후, chase 상태 유지 시간
         [SerializeField, Min(0f)] private float stuckDuration = 10f;
         [SerializeField, Min(0f)] private float chaseSpeed = 8f;
+        // 다수의 개체가 추격 시, 하나의 목격 지점으로 몰리는 현상을 방지하기 위해 흩어지는 반경
+        [SerializeField, Min(0f)] private float chaseSpreadRadius = 2f;
+        // 시야를 잃은 뒤 몹이 플레이어를 투시하는 시간
+        [SerializeField, Min(0f)] private float chaseClairvoyanceDuration = 2f;
 
         [Header("Search")]
         // Search 상태 중 경계도가 깎이는 속도, patrol - alertDecreaseSpeed와 별개
@@ -82,6 +85,22 @@ namespace ProjectHive.AI.Mob
         [SerializeField, Range(0f, 180f)] private float searchStartHalfAngle = 45f;
         // 부채꼴이 최대로 벌어지는 반각
         [SerializeField, Range(0f, 180f)] private float searchEndHalfAngle = 135f;
+
+
+        [Header("Investigate")] 
+        [SerializeField, Min(0f)] private float investigateSpeed = 6f;
+        // 도착 후 반경 내에서 훑어볼 지점 수
+        [SerializeField, Min(1f)] private int investigatePointCount = 3;
+        // 자극이 발생한 뒤, 조사하는 시간. 이 시간이 지나면 patrol로 복귀한다
+        [SerializeField, Min(0f)] private float investigateTimeout = 20f;
+        // 직접 들은 소리의 탐색 반경, 최소 3, 최대 12m(하이브 연동 값)
+        [SerializeField, Min(0f)] private float investigateMinRadius = 3f;
+        [SerializeField, Min(0f)] private float investigateMaxRadius = 12f;
+        // 이 필드의 거리 안의 새로운 자극은 같은 사건으로 보고 다시 출발하지 않는다
+        [SerializeField, Min(0f)] private float investigateMergeDistance = 5f;
+
+        
+        
 
         
         [Header("Tick Interval")] 
@@ -140,9 +159,10 @@ namespace ProjectHive.AI.Mob
         public float DestinationUpdateThreshold => destinationUpdateThreshold;
         public float StuckDuration => stuckDuration;
         public float ChaseSpeed => chaseSpeed;
+        public float ChaseSpreadRadius => chaseSpreadRadius;
+        public float ChaseClairvoyanceDuration => chaseClairvoyanceDuration;
         
         
-        // Search
         // Search
         public float SearchAlertDecreaseSpeed => searchAlertDecreaseSpeed;
         public float AssumedPlayerSpeed => assumedPlayerSpeed;
@@ -150,6 +170,15 @@ namespace ProjectHive.AI.Mob
         public float MaxSearchRadius => maxSearchRadius;
         public float SearchStartHalfAngle => searchStartHalfAngle;
         public float SearchEndHalfAngle => searchEndHalfAngle;
+        
+        
+        // Investigate
+        public float InvestigateSpeed => investigateSpeed;
+        public int InvestigatePointCount => investigatePointCount;
+        public float InvestigateTimeout => investigateTimeout;
+        public float InvestigateMinRadius => investigateMinRadius;
+        public float InvestigateMaxRadius => investigateMaxRadius;
+        public float InvestigateMergeDistance => investigateMergeDistance;
         
         
         // Tick Interval
