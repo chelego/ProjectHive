@@ -12,9 +12,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d0a3e5bcf155748449100c144c24265b, type: 3}
   m_Name: BreckenAISettings
   m_EditorClassIdentifier: Assembly-CSharp::ProjectHive.AI.Mob.MobAISettings
+  arrivalDistanceThreshold: 0.6
   bothSideSightsAngle: 110
   upSightAngle: 30
   downSightAngle: 45
+  closeSightAngle: 180
+  closeUpSightAngle: 60
+  closeDownSightAngle: 70
+  sightBoostNearDistance: 2
+  sightBoostFarDistance: 5
   horizontalHeadTurnAngle: 90
   verticalHeadTurnAngle: 60
   sightDistance: 15
@@ -24,18 +30,27 @@ MonoBehaviour:
   eyeHeight: 2
   headTurnSpeed: 120
   bodyTurnSpeed: 90
+  closeBodyTurnSpeed: 220
+  turnBoostNearDistance: 2
+  turnBoostFarDistance: 5
   patrolRadius: 15
   patrolSpeed: 3
   waitingTimeAfterPatrolPoint: 3
   patrolHeadSweepAngle: 180
   patrolHeadSweepSpeed: 90
   bodyFollowRatio: 0.2
-  alertMax: 3
+  alertMax: 10
   alertDecreaseSpeed: 1
-  alertIncreaseSpeed: 3
+  alertIncreaseSpeed: 20
   destinationUpdateThreshold: 0.5
-  lostSightDuration: 10
-  chaseSpeed: 6
+  stuckDuration: 15
+  chaseSpeed: 9
+  searchAlertDecreaseSpeed: 0.5
+  assumedPlayerSpeed: 7
+  fleeDirectness: 0.6
+  maxSearchRadius: 15
+  searchStartHalfAngle: 45
+  searchEndHalfAngle: 135
   requestPathTickInterval: 0.1
   judgeTickInterval: 0.1
   perceptionTickInterval: 0.1
