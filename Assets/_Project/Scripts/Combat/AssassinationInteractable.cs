@@ -1,4 +1,5 @@
 using ProjectHive.Core.Contracts;
+using ProjectHive.Player;
 using UnityEngine;
 
 namespace ProjectHive.Combat
@@ -8,18 +9,19 @@ namespace ProjectHive.Combat
     public sealed class AssassinationInteractable : MonoBehaviour, IInteractable
     {
         [SerializeField] private string prompt = "Assassinate";
-        [SerializeField] private float damage = 999f;
+        [SerializeField] private float minimumLethalDamage = 999f;
         [SerializeField] private float maxDistance = 1.8f;
         [SerializeField] private float rearAngle = 80f;
-        [SerializeField] private bool requireBehindTarget = true;
 
         private Health health;
+        private IAssassinationStateProvider assassinationState;
 
         public string InteractionPrompt => health != null && health.IsDead ? string.Empty : prompt;
 
         private void Awake()
         {
             health = GetComponent<Health>();
+            assassinationState = GetComponent<IAssassinationStateProvider>();
         }
 
         public bool CanInteract(in InteractionContext context)
@@ -27,12 +29,12 @@ namespace ProjectHive.Combat
             if (health == null || health.IsDead || context.Interactor == null)
                 return false;
 
+            if (assassinationState != null && !assassinationState.IsAssassinable)
+                return false;
+
             Vector3 toTarget = transform.position - context.Origin;
             if (toTarget.sqrMagnitude > maxDistance * maxDistance)
                 return false;
-
-            if (!requireBehindTarget)
-                return true;
 
             return IsInteractorBehind(context.Origin);
         }
@@ -42,14 +44,34 @@ namespace ProjectHive.Combat
             if (!CanInteract(in context))
                 return;
 
+            ExecuteAssassination(in context);
+        }
+
+        public bool TryAssassinate(in InteractionContext context)
+        {
+            if (!CanInteract(in context))
+                return false;
+
+            ExecuteAssassination(in context);
+            return true;
+        }
+
+        private void ExecuteAssassination(in InteractionContext context)
+        {
             Vector3 direction = transform.position - context.Origin;
+            float damage = health != null ? Mathf.Max(minimumLethalDamage, health.CurrentHealth) : minimumLethalDamage;
             DamageData damageData = new DamageData(
                 damage,
                 DamageKind.Assassination,
+                DamageHitZone.Head,
+                DamageFlags.BypassArmor | DamageFlags.Critical,
                 transform.position + Vector3.up,
                 direction,
                 context.Interactor);
             health.ApplyDamage(in damageData);
+
+            PlayerCombatController combatController = context.Interactor.GetComponent<PlayerCombatController>();
+            combatController?.PlayAssassinationMotion(gameObject);
         }
 
         private bool IsInteractorBehind(Vector3 interactorPosition)
@@ -66,7 +88,7 @@ namespace ProjectHive.Combat
 
         private void OnValidate()
         {
-            damage = Mathf.Max(0f, damage);
+            minimumLethalDamage = Mathf.Max(0f, minimumLethalDamage);
             maxDistance = Mathf.Max(0.1f, maxDistance);
             rearAngle = Mathf.Clamp(rearAngle, 1f, 180f);
         }
