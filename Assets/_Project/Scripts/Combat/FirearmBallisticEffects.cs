@@ -49,6 +49,11 @@ namespace ProjectHive.Combat
                 PlayImpact(context);
         }
 
+        public void SetGunshotClip(AudioClip clip)
+        {
+            gunshotClip = clip;
+        }
+
         private void PlayMuzzleFlash(Vector3 position, Vector3 direction)
         {
             if (TrySpawnPrefab(muzzleFlashPrefab, position, Quaternion.LookRotation(direction), muzzleFlashLifetime))

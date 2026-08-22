@@ -13,10 +13,15 @@ MonoBehaviour:
   m_Name: Firearm_FiveShotRevolver
   m_EditorClassIdentifier: Assembly-CSharp::ProjectHive.Combat.FirearmDefinition
   weaponItemId: weapon.firearm.five_shot_revolver
-  displayName: Five-Shot Revolver
+  displayName: Reichsrevolver M1879
   feedType: 2
   visualProfile: 1
   displayColor: {r: 0.36, g: 0.29, b: 0.18, a: 1}
+  gunshotClip: {fileID: 0}
+  viewModelPrefab: {fileID: 150636, guid: 20d6fada1e8caa1488140d8433a67d6b, type: 3}
+  viewModelLocalPosition: {x: 0, y: -0.03, z: 0.04}
+  viewModelLocalEulerAngles: {x: 0, y: 0, z: 0}
+  viewModelLocalScale: {x: 1.85, y: 1.85, z: 1.85}
   damage: 48
   fireRate: 2.2
   maxDistance: 110
@@ -24,6 +29,6 @@ MonoBehaviour:
   minimumDamageMultiplier: 0.4
   spreadDegrees: 0.03
   magazineCapacity: 0
-  cylinderCapacity: 5
+  cylinderCapacity: 6
   gunshotLoudness: 1.15
   gunshotRadius: 65
