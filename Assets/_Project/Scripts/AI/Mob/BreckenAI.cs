@@ -72,8 +72,6 @@
             private int patrolSweepSign = -1;
             
             [Header("State - Chase")]
-            [SerializeField, Min(0f)]
-            private float attackRange = 2f; // 공격 범위, 임시값
             private float lastChaseRemainingDistance = float.PositiveInfinity;
 
             [Header("State - Search")]
@@ -91,6 +89,9 @@
             private int visitedInvestigatePointCount;
 
 
+            [Header("State - Attack")]
+            // 마지막으로 때린 시각, 쿨다운 계산용
+            private float lastAttackTime = float.NegativeInfinity;
 
             private Vector3 lastKnownPlayerPosition;
             private Vector3 lastKnownPlayerDirection;
@@ -107,11 +108,11 @@
             [SerializeField] private HiveUnitRegistry hiveUnitRegistry;
 
             [SerializeField] private HiveUnitRole hiveRole = HiveUnitRole.Hunter;
-            // Attack 구현 이전까지 Attack 능력은 켜지 않는다
             [SerializeField] private HiveUnitCapabilities hiveCapabilities =
                 HiveUnitCapabilities.GroundMovement |
                 HiveUnitCapabilities.Investigate |
-                HiveUnitCapabilities.Guard;
+                HiveUnitCapabilities.Guard |
+                HiveUnitCapabilities.Attack;
 
             // 하이브가 스냅샷에 담아가는 값, 0이면 수행 중인 명령 없음
             private int currentHiveCommandSequence;
@@ -127,6 +128,9 @@
                 !isPlayerVisible &&
                 currentState != EnemyState.Chase &&
                 currentState != EnemyState.Attack;
+
+            // 마지막으로 목격 보고를 올린 시각
+            private float lastVisualContactReportTime = float.NegativeInfinity;
 
             
             [SerializeField] private RuntimeCoordinator runtimeCoordinator;
@@ -163,6 +167,29 @@
                     ChangeState(EnemyState.Investigate); // 이미 investigate라면 무시
                 }
 
+                // 사거리 안이라면 chase의 도착 판정보다 먼저 Attack으로 전이
+                // switch 앞에서 처리해야 같은 틱에 타격한다
+                if (currentState == EnemyState.Chase &&
+                    IsPlayerInAttackRange() &&
+                    (isPlayerVisible || IsInChaseClairvoyance(context)))
+                {
+                    ChangeState(EnemyState.Attack);
+                }
+
+                // 쫓는 중, 플레이어가 보이면 주기적으로 하이브에게 보고한다
+                if (isPlayerVisible && 
+                (currentState == EnemyState.Chase || currentState == EnemyState.Attack) &&
+                context.CurrentTime - lastVisualContactReportTime >= settings.VisualContactReportInterval)
+                {
+                    ReportToHive(
+                        EnemyReportKind.VisualContact,
+                        playerTransform.position,
+                        1f,
+                        context.CurrentTime
+                    );
+                    lastVisualContactReportTime = context.CurrentTime;
+                }
+
                 switch (currentState)
                 {
                     case EnemyState.Idle: TickIdle(context); break;
@@ -189,7 +216,7 @@
                 currentHiveCommandSequence = 0;
                 isHeardNoise = false;
                 hasPendingCommand = false;
-
+                lastVisualContactReportTime = float.NegativeInfinity;
 
 
                 // patrol reset
@@ -214,6 +241,8 @@
                 investigateRadius = 0f;
                 investigateStimulusTime = 0f;
                 visitedInvestigatePointCount = 0;
+
+                lastAttackTime = float.NegativeInfinity;
                 lastKnownPlayerPosition = Vector3.zero;
                 lastKnownPlayerDirection = Vector3.zero;
                 lastKnownPlayerSightingTime = 0f;
@@ -298,6 +327,19 @@
                 pendingCommandIssuedTime = command.IssuedAt;
                 currentHiveCommandSequence = command.Sequence;
                 return true;
+            }
+
+            /// <summary>
+            /// 하이브에게 보고를 올린다
+            /// 버스가 없는 씬에서는 조용히 넘어간다
+            /// </summary>
+            private void ReportToHive(EnemyReportKind kind, Vector3 position, float confidence, float time)
+            {
+                if (GameEventBus.Instance == null) return;
+
+                GameEventBus.Instance.PublishEnemyReport(new EnemyReport(
+                    kind, position, confidence, gameObject.GetInstanceID(), time
+                ));
             }
 
             // 시야는 거리로 -> y축을 살려 대각선 계산
@@ -488,6 +530,15 @@
                         agent.speed = settings.PatrolSpeed; // 일단 patrol 상태의 이동속도와 동일
                         visitedSearchPointsCount = 0;
                         lookPitch = 0f;
+
+                        // 플레이어를 놓쳤다는 사실을 하이브에게 1회 보고
+                        // 마지막으로 본 장소이므로 신뢰도를 낮춰서 전달한다
+                        ReportToHive(
+                            EnemyReportKind.LostTarget,
+                            lastKnownPlayerPosition,
+                            0.7f,
+                            Time.time
+                        );
                         break;
 
                     case EnemyState.Investigate:
@@ -497,6 +548,12 @@
                         visitedInvestigatePointCount = 0;
                         headTransform.localRotation = Quaternion.identity;
                         lookPitch = 0f;
+                        break;
+
+                    
+                    case EnemyState.Attack:
+                        agent.updateRotation = false;
+                        agent.speed = settings.ChaseSpeed * settings.AttackSpeedMultiplier;
                         break;
 
                     default:
@@ -969,10 +1026,97 @@
 
             private void TickAttack(in RuntimeTickContext context)
             {
-                Debug.Log("State : Attack");
-                ChangeState(EnemyState.Chase);
-                return;
+                if (!IsPlayerInAttackRange() || !(isPlayerVisible || IsInChaseClairvoyance(context))) 
+                {
+                    ChangeState(EnemyState.Chase);
+                    return;
+                }
+
+                // 공격 중에는 항상 플레이어 방향으로 몸을 돌린다
+                FaceTarget(playerTransform.position, context.DeltaTime);
+
+                // 공격이 끝난 뒤, 추격이 이어지도록 목격 정보 갱신
+                if (isPlayerVisible)
+                {
+                    lastKnownPlayerDirection = 
+                        (playerTransform.position - lastKnownPlayerPosition).normalized;
+                    lastKnownPlayerPosition = playerTransform.position;
+                    lastKnownPlayerSightingTime = context.CurrentTime;
+                    alertness = settings.AlertMax;
+                }
+
+                else if(IsInChaseClairvoyance(context))
+                {
+                    lastKnownPlayerDirection = 
+                        (playerTransform.position - lastKnownPlayerPosition).normalized;
+                    lastKnownPlayerPosition = playerTransform.position;
+                }
+                
+                // 쿨다운이 지났고, 실제로 보이고, 몸이 정면을 향했다면 Attack
+                if (context.CurrentTime - lastAttackTime >= settings.AttackCooldown &&
+                    isPlayerVisible &&
+                    IsFacingPlayer())
+                {
+                    Attack();
+                    lastAttackTime = context.CurrentTime;
+                }
             }
+
+            /// <summary>
+            /// 공격 사거리 판정
+            /// </summary>
+            private bool IsPlayerInAttackRange()
+            {
+                if (playerTransform == null) return false;
+
+                Vector3 toPlayer = playerTransform.position - transform.position;
+                float verticalDistance = Mathf.Abs(toPlayer.y);
+                toPlayer.y = 0f;
+
+
+                return toPlayer.sqrMagnitude <= 
+                    settings.AttackRange * settings.AttackRange &&
+                    verticalDistance <= 1.0f;
+            }
+
+            /// <summary>
+            /// 몸통이 플레이어를 향하고 있는지 판정
+            /// 다 돌았다고 판정되기 전까지는 때리지 않는다
+            /// </summary>
+            private bool IsFacingPlayer()
+            {
+                Vector3 toPlayer = playerTransform.position - transform.position;
+                toPlayer.y = 0f;
+                
+                if (toPlayer.sqrMagnitude < 0.01f) return true;
+
+                return Vector3.Angle(transform.forward, toPlayer) <= settings.AttackHalfAngle;
+            }
+
+            /// <summary>
+            /// 실제 공격
+            /// </summary>
+            private void Attack()
+            {
+                // 쿨다운 간격으로만 호출
+                IDamageable target = playerTransform.GetComponentInParent<IDamageable>();
+                if (target == null || target.IsDead) return;
+
+                Vector3 hitPoint = 
+                    playerTransform.position + Vector3.up * (PlayerHeight * 0.5f);
+                Vector3 direction = playerTransform.position - transform.position;
+
+                target.ApplyDamage(new DamageData(
+                    settings.AttackDamage,
+                    DamageKind.Monster,
+                    DamageHitZone.Body,
+                    DamageFlags.CanCauseBleeding,
+                    hitPoint,
+                    direction,
+                    gameObject
+                ));
+            }
+        
 
             private void TickSearch(in RuntimeTickContext context)
             {

@@ -99,8 +99,22 @@ namespace ProjectHive.AI.Mob
         // 이 필드의 거리 안의 새로운 자극은 같은 사건으로 보고 다시 출발하지 않는다
         [SerializeField, Min(0f)] private float investigateMergeDistance = 5f;
 
-        
-        
+
+        [Header("Attack")] 
+        // 이 거리 안으로 들어오면 즉각적으로 chase -> attack으로 전이
+        [SerializeField, Min(0f)] private float attackRange = 2f;
+        [SerializeField, Min(0f)] private float attackDamage = 20f;
+        // 최소 타격 간격 - 공격 속도
+        [SerializeField, Min(0.01f)] private float attackCooldown = 1f;
+        // 몸통 전면부가 이 각도 내에 들어와야 attack
+        [SerializeField, Range(0f, 180f)] private float attackHalfAngle = 45f;
+        // 공격 중 이동속도 감쇠 비율
+        [SerializeField, Range(0f, 1f)] private float attackSpeedMultiplier = 0.7f;
+
+
+        [Header("Report")]
+        // 하이브에게 목격 정보를 보고하는 간격
+        [SerializeField, Min(0.1f)] private float visualContactReportInterval = 2f;       
 
         
         [Header("Tick Interval")] 
@@ -178,7 +192,17 @@ namespace ProjectHive.AI.Mob
         public float InvestigateTimeout => investigateTimeout;
         public float InvestigateMinRadius => investigateMinRadius;
         public float InvestigateMaxRadius => investigateMaxRadius;
-        public float InvestigateMergeDistance => investigateMergeDistance;
+        public float InvestigateMergeDistance => investigateMergeDistance; 
+        
+        // Attack
+        public float AttackRange => attackRange;
+        public float AttackDamage => attackDamage;
+        public float AttackCooldown => attackCooldown;
+        public float AttackHalfAngle => attackHalfAngle;
+        public float AttackSpeedMultiplier => attackSpeedMultiplier;
+
+        // Report
+        public float VisualContactReportInterval => visualContactReportInterval;
         
         
         // Tick Interval

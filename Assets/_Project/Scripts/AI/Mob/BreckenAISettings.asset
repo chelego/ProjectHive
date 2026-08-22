@@ -34,7 +34,7 @@ MonoBehaviour:
   turnBoostNearDistance: 2
   turnBoostFarDistance: 5
   patrolRadius: 15
-  patrolSpeed: 3
+  patrolSpeed: 5
   waitingTimeAfterPatrolPoint: 3
   patrolHeadSweepAngle: 180
   patrolHeadSweepSpeed: 90
@@ -59,7 +59,12 @@ MonoBehaviour:
   investigateMinRadius: 3
   investigateMaxRadius: 12
   investigateMergeDistance: 5
-  investigateSpreadRadius: 2
+  attackRange: 2
+  attackDamage: 20
+  attackCooldown: 1
+  attackHalfAngle: 45
+  attackSpeedMultiplier: 0.7
+  visualContactReportInterval: 2
   requestPathTickInterval: 0.1
   judgeTickInterval: 0.1
   perceptionTickInterval: 0.1
