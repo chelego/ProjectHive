@@ -1,4 +1,5 @@
 * text=auto
+/.gitattributes text eol=lf
 
 *.cs text eol=lf
 *.shader text eol=lf
@@ -17,7 +18,8 @@
 *.controller text eol=lf merge=unityyamlmerge
 
 # NavMeshData is a native binary Unity asset despite using the .asset extension.
-Assets/_Project/Scenes/**/NavMesh-*.asset binary
+# Match every project location, including Integration/VerticalSlice scenes.
+Assets/**/NavMesh-*.asset binary -eol
 
 *.psd filter=lfs diff=lfs merge=lfs -text
 *.fbx filter=lfs diff=lfs merge=lfs -text
