@@ -5,14 +5,18 @@
     using ProjectHive.Core.Runtime;
     // GameEventBus
     using ProjectHive.Core.Events;
+    // IAssassinationStateProvider, IDamageable, DamageData
     using ProjectHive.Core.Contracts;
+    using ProjectHive.Combat;
     using System;
     using ProjectHive.AI.Hive;
     using Random = UnityEngine.Random;
+    
 
     namespace ProjectHive.AI.Mob
     {
         [RequireComponent(typeof(NavMeshAgent))]
+        [RequireComponent(typeof(Health))]
         public sealed class BreckenAI : MonoBehaviour, IRuntimeTickable, IAssassinationStateProvider, IHiveControllable
         {
             private enum EnemyState
@@ -57,11 +61,19 @@
             // TODO 플레이테스트 후 settings로
             private const float NoiseMemoryDuration = 5f; 
 
+            [Header("Damage")]
+            // 사망 처리에 필요한 값만 콜백이 적어둔다
+            private Health health;
+            // 사망 쓰러짐 임시 - 8/23
+            // 맞은 순간에 복사해 둔 가해 위치, 쓰러질 방향 계산에 쓴다
+            private Vector3 damageSourcePosition;
+            // 암살은 김철희의 연출이 몸을 움직이므로 눕히기에서 제외한다
+            private DamageKind lastDamageKind;
+
             
             
             [Header("Enemy State")]
-            [SerializeField]
-            private EnemyState currentState = EnemyState.Idle;
+            [SerializeField] private EnemyState currentState = EnemyState.Idle;
 
             [Header("State - Patrol")]
             [SerializeField] private bool isPatrolWaiting;
@@ -92,6 +104,8 @@
             [Header("State - Attack")]
             // 마지막으로 때린 시각, 쿨다운 계산용
             private float lastAttackTime = float.NegativeInfinity;
+
+
 
             private Vector3 lastKnownPlayerPosition;
             private Vector3 lastKnownPlayerDirection;
@@ -141,6 +155,7 @@
             private void Awake()
             {
                 agent = GetComponent<NavMeshAgent>();
+                health = GetComponent<Health>();
             }
 
             public void RuntimeTick(in RuntimeTickContext context)
@@ -150,6 +165,7 @@
                 {
                     isHeardNoise = false;
                 }
+
                 isPlayerVisible = CanSeePlayer();
 
                 // 자극 판정은 상태와 무관하게 RuntimeTick에서 판별
@@ -243,14 +259,24 @@
                 visitedInvestigatePointCount = 0;
 
                 lastAttackTime = float.NegativeInfinity;
+
+                damageSourcePosition = Vector3.zero;
+                lastDamageKind = DamageKind.Unknown;
+
                 lastKnownPlayerPosition = Vector3.zero;
                 lastKnownPlayerDirection = Vector3.zero;
                 lastKnownPlayerSightingTime = 0f;
                 // 플레이어가 우연히 월드의 원점에 서있는 경우 방지
                 lastRequestedDestination = Vector3.positiveInfinity;
 
-                if (agent != null) agent.updateRotation = true; // Alert/Search에서 꺼둔 회전을 되돌린다
+                if (agent != null)
+                {
+                    agent.enabled = true; // 사망 시 꺼둔 것을 다시 켠다    
+                    agent.updateRotation = true; // Alert/Search에서 꺼둔 회전을 되돌린다
+                }
                 headTransform.localRotation = Quaternion.identity; // Chase에서 바뀐 머리를 정면으로 초기화
+                // 사망 쓰러짐 임시 - 8/23
+                transform.rotation = Quaternion.Euler(0f, transform.eulerAngles.y, 0f);
 
 
                 hiveUnitRegistry?.Register(this);
@@ -258,6 +284,8 @@
                 {
                     GameEventBus.Instance.NoiseEmitted += OnNoiseEmitted;
                 }
+                health.Damaged += OnDamaged;
+                health.Died += OnDied;
                 if (runtimeCoordinator == null)
                 {
                     Debug.LogWarning("RuntimeCoordinator를 찾지 못해 .register 실패", this);
@@ -278,6 +306,9 @@
                 {
                     GameEventBus.Instance.NoiseEmitted -= OnNoiseEmitted;
                 }
+
+                health.Damaged -= OnDamaged;
+                health.Died -= OnDied;
 
                 hiveUnitRegistry?.Unregister(this);
             }
@@ -420,6 +451,65 @@
                     : 1f;
                 
                 Debug.Log($"소리 들음: {noiseEvent.Category} at {noiseEvent.Position} (거리 {toNoise.magnitude:F1}m)", this);
+            }
+
+            /// <summary>
+            /// 피해를 입는다
+            /// 피격 반응은 보류 상태라, 사망 처리에 필요한 값만 기록한다
+            /// </summary>
+            private void OnDamaged(Health damagedHealth, DamageData damage)
+            {
+                // 사망 쓰러짐 임시 - 8/23
+                lastDamageKind = damage.Kind;
+
+                if (damage.Source == null) return;
+
+                // 더 최근 피격이 이전 피격을 덮는다
+                damageSourcePosition = damage.Source.transform.position;
+            }
+
+            /// <summary>
+            /// 죽으면 이동과 판단을 멈춘다
+            /// 오브젝트는 일단 남긴다 - 암살 연출이 이 오브젝트에서 코루틴을 돌리며
+            /// 트랜스폼을 움직이므로 NavMeshAgent도 같이 끈다
+            /// </summary>
+            private void OnDied(Health deadHealth)
+            {
+                if (agent != null) agent.enabled = false;
+
+                // 사망 쓰러짐 임시 - 8/23
+                if (lastDamageKind != DamageKind.Assassination)
+                {
+                    LieDown();
+                }
+
+                enabled = false;
+            }
+
+            // 사망 쓰러짐 임시 - 8/23
+            /// <summary>
+            /// 그 자리에서 바닥에 눕는다 (임시 - 사망 애니메이션 전까지)
+            /// 맞은 반대쪽으로 넘어진다
+            /// </summary>
+            private void LieDown()
+            {
+                BoxCollider body = null;
+                foreach (Collider c in GetComponentsInChildren<Collider>())
+                {
+                    if (c.name == "BreckenBody") body = c as BoxCollider;
+                }
+                // 누우면 몸통 두께의 절반만큼 띄워야 바닥에 걸친다
+                // bounds는 회전에 따라 부풀어 오르는 AABB라 실제 두께를 직접 계산한다
+                float halfThickness = body != null
+                    ? body.size.z * body.transform.lossyScale.z * 0.5f
+                    : 0.5f;
+
+                Vector3 toShooter = damageSourcePosition - transform.position;
+                bool fallForward = Vector3.Dot(transform.forward, toShooter) < 0f;
+
+                transform.SetPositionAndRotation(
+                    transform.position + Vector3.up * halfThickness,
+                    Quaternion.Euler(fallForward ? 90f : -90f, transform.eulerAngles.y, 0f));
             }
 
             /// <summary>
