@@ -68,6 +68,13 @@ namespace ProjectHive.AI.Mob
         [SerializeField, Min(0f)] private float stuckDuration = 10f;
         [SerializeField, Min(0f)] private float chaseSpeed = 8f;
 
+        [Header("Attack")]
+        [SerializeField, Min(0f)] private float attackRange = 2f;
+        [SerializeField, Min(0f)] private float attackDamage = 20f;
+        [SerializeField, Min(0.01f)] private float attackCooldown = 1f;
+        [SerializeField, Range(0f, 180f)] private float attackHalfAngle = 45f;
+        [SerializeField, Range(0f, 1f)] private float attackSpeedMultiplier = 0.7f;
+
         [Header("Search")]
         // Search 상태 중 경계도가 깎이는 속도, patrol - alertDecreaseSpeed와 별개
         [SerializeField, Min(0f)] private float searchAlertDecreaseSpeed = 0.5f; 
@@ -141,6 +148,12 @@ namespace ProjectHive.AI.Mob
         public float StuckDuration => stuckDuration;
         public float ChaseSpeed => chaseSpeed;
         
+        // Attack
+        public float AttackRange => attackRange;
+        public float AttackDamage => attackDamage;
+        public float AttackCooldown => attackCooldown;
+        public float AttackHalfAngle => attackHalfAngle;
+        public float AttackSpeedMultiplier => attackSpeedMultiplier;
         
         // Search
         // Search

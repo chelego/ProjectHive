@@ -45,6 +45,11 @@ MonoBehaviour:
   destinationUpdateThreshold: 0.5
   stuckDuration: 15
   chaseSpeed: 9
+  attackRange: 2
+  attackDamage: 20
+  attackCooldown: 1
+  attackHalfAngle: 45
+  attackSpeedMultiplier: 0.7
   searchAlertDecreaseSpeed: 0.5
   assumedPlayerSpeed: 7
   fleeDirectness: 0.6

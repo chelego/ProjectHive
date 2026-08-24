@@ -1318,7 +1318,7 @@ MonoBehaviour:
   prompt: Assassinate
   damage: 999
   maxDistance: 1.8
-  rearAngle: 80
+  rearAngle: 120
   requireBehindTarget: 1
 --- !u!114 &210640170
 MonoBehaviour:
@@ -3185,7 +3185,7 @@ MonoBehaviour:
   prompt: Assassinate
   damage: 999
   maxDistance: 1.8
-  rearAngle: 80
+  rearAngle: 120
   requireBehindTarget: 1
 --- !u!114 &583413040
 MonoBehaviour:
@@ -3300,7 +3300,7 @@ MonoBehaviour:
   prompt: Assassinate
   damage: 999
   maxDistance: 1.8
-  rearAngle: 80
+  rearAngle: 120
   requireBehindTarget: 1
 --- !u!114 &632585077
 MonoBehaviour:

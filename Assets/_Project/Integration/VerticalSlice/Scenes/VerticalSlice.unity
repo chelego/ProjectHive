@@ -16294,7 +16294,7 @@ MonoBehaviour:
   prompt: Assassinate
   minimumLethalDamage: 999
   maxDistance: 1.8
-  rearAngle: 80
+  rearAngle: 120
 --- !u!114 &439834727
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -53853,7 +53853,7 @@ MonoBehaviour:
   prompt: Assassinate
   minimumLethalDamage: 999
   maxDistance: 1.8
-  rearAngle: 80
+  rearAngle: 120
 --- !u!114 &1315642133
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -66522,7 +66522,7 @@ MonoBehaviour:
   prompt: Assassinate
   minimumLethalDamage: 999
   maxDistance: 1.8
-  rearAngle: 80
+  rearAngle: 120
 --- !u!114 &1628674801
 MonoBehaviour:
   m_ObjectHideFlags: 0

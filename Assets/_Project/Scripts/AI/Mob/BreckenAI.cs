@@ -6,12 +6,14 @@
     // GameEventBus
     using ProjectHive.Core.Events;
     using ProjectHive.Core.Contracts;
+    using ProjectHive.Combat;
     using System;
     using Random = UnityEngine.Random;
 
     namespace ProjectHive.AI.Mob
     {
         [RequireComponent(typeof(NavMeshAgent))]
+        [RequireComponent(typeof(Health))]
         public sealed class BreckenAI : MonoBehaviour, IRuntimeTickable, IAssassinationStateProvider
         {
             private enum EnemyState
@@ -44,6 +46,11 @@
             private const float PlayerHeight = 1.8f; // 플레이어 키, 1.8m, 임시, 차후 웅크리기 등에 맞춰 변경
             private float playerAimHeight = PlayerHeight * 0.7f; // 브레켄이 플레이어를 바라보는 플레이어의 몸통 각도, 명치 부근을 바라본다
 
+            [Header("Damage")]
+            private Health health;
+            private Vector3 damageSourcePosition;
+            private DamageKind lastDamageKind;
+
             [Header("Enemy State")]
             [SerializeField]
             private EnemyState currentState = EnemyState.Idle;
@@ -59,9 +66,10 @@
 
 
             [Header("State - Chase")]
-            [SerializeField, Min(0f)]
-            private float attackRange = 2f; // 공격 범위, 임시값
             private float lastChaseRemainingDistance = float.PositiveInfinity;
+
+            [Header("State - Attack")]
+            private float lastAttackTime = float.NegativeInfinity;
 
             [Header("State - Search")]
             [SerializeField, Min(1)] private int searchPointCount = 3;
@@ -87,11 +95,19 @@
             private void Awake()
             {
                 agent = GetComponent<NavMeshAgent>();
+                health = GetComponent<Health>();
             }
 
             public void RuntimeTick(in RuntimeTickContext context)
             {
                 isPlayerVisible = CanSeePlayer();
+
+                if (currentState == EnemyState.Chase &&
+                    isPlayerVisible &&
+                    IsPlayerInAttackRange())
+                {
+                    ChangeState(EnemyState.Attack);
+                }
 
                 switch (currentState)
                 {
@@ -134,6 +150,9 @@
                 alertness = 0f;
 
                 visitedSearchPointsCount = 0;
+                lastAttackTime = float.NegativeInfinity;
+                damageSourcePosition = Vector3.zero;
+                lastDamageKind = DamageKind.Unknown;
                 lastKnownPlayerPosition = Vector3.zero;
                 lastKnownPlayerDirection = Vector3.zero;
                 lastKnownPlayerSightingTime = 0f;
@@ -143,6 +162,11 @@
                 if (agent != null) agent.updateRotation = true; // Alert/Search에서 꺼둔 회전을 되돌린다
                 headTransform.localRotation = Quaternion.identity; // Chase에서 바뀐 머리를 정면으로 초기화
 
+                if (health != null)
+                {
+                    health.Damaged += OnDamaged;
+                    health.Died += OnDied;
+                }
 
                 if (runtimeCoordinator == null)
                 {
@@ -158,6 +182,12 @@
                 if (runtimeCoordinator != null)
                 {
                     runtimeCoordinator.Unregister(this);
+                }
+
+                if (health != null)
+                {
+                    health.Damaged -= OnDamaged;
+                    health.Died -= OnDied;
                 }
             }
 
@@ -246,6 +276,12 @@
                         agent.updateRotation = false;
                         lastRequestedDestination = Vector3.positiveInfinity;
                         agent.speed = settings.ChaseSpeed;
+                        break;
+
+                    case EnemyState.Attack:
+                        agent.updateRotation = false;
+                        if (agent.isOnNavMesh) agent.ResetPath();
+                        agent.speed = settings.ChaseSpeed * settings.AttackSpeedMultiplier;
                         break;
 
                     case EnemyState.Search:
@@ -584,7 +620,117 @@
 
             private void TickAttack(in RuntimeTickContext context)
             {
-                Debug.Log("State : Attack");
+                if (!isPlayerVisible || !IsPlayerInAttackRange())
+                {
+                    ChangeState(EnemyState.Chase);
+                    return;
+                }
+
+                FaceTarget(playerTransform.position, context.DeltaTime);
+
+                lastKnownPlayerDirection = (playerTransform.position - lastKnownPlayerPosition).normalized;
+                lastKnownPlayerPosition = playerTransform.position;
+                lastKnownPlayerSightingTime = context.CurrentTime;
+                alertness = settings.AlertMax;
+
+                if (context.CurrentTime - lastAttackTime < settings.AttackCooldown ||
+                    !IsFacingPlayer())
+                {
+                    return;
+                }
+
+                ApplyAttackDamage();
+                lastAttackTime = context.CurrentTime;
+            }
+
+            private bool IsPlayerInAttackRange()
+            {
+                if (playerTransform == null) return false;
+
+                Vector3 toPlayer = playerTransform.position - transform.position;
+                float verticalDistance = Mathf.Abs(toPlayer.y);
+                toPlayer.y = 0f;
+
+                return toPlayer.sqrMagnitude <= settings.AttackRange * settings.AttackRange &&
+                    verticalDistance <= 1.0f;
+            }
+
+            private bool IsFacingPlayer()
+            {
+                if (playerTransform == null) return false;
+
+                Vector3 toPlayer = playerTransform.position - transform.position;
+                toPlayer.y = 0f;
+
+                if (toPlayer.sqrMagnitude < 0.01f) return true;
+
+                return Vector3.Angle(transform.forward, toPlayer) <= settings.AttackHalfAngle;
+            }
+
+            private void ApplyAttackDamage()
+            {
+                if (playerTransform == null) return;
+
+                IDamageable target = playerTransform.GetComponentInParent<IDamageable>();
+                if (target == null || target.IsDead) return;
+
+                Vector3 hitPoint = playerTransform.position + Vector3.up * (PlayerHeight * 0.5f);
+                Vector3 direction = playerTransform.position - transform.position;
+                DamageData damage = new DamageData(
+                    settings.AttackDamage,
+                    DamageKind.Monster,
+                    DamageHitZone.Body,
+                    DamageFlags.CanCauseBleeding,
+                    hitPoint,
+                    direction,
+                    gameObject);
+
+                target.ApplyDamage(in damage);
+            }
+
+            private void OnDamaged(Health damagedHealth, DamageData damage)
+            {
+                lastDamageKind = damage.Kind;
+
+                if (damage.Source == null) return;
+
+                damageSourcePosition = damage.Source.transform.position;
+            }
+
+            private void OnDied(Health deadHealth)
+            {
+                if (agent != null)
+                    agent.enabled = false;
+
+                if (lastDamageKind != DamageKind.Assassination)
+                    LieDown();
+
+                enabled = false;
+            }
+
+            private void LieDown()
+            {
+                BoxCollider body = null;
+                Collider[] colliders = GetComponentsInChildren<Collider>();
+                for (int i = 0; i < colliders.Length; i++)
+                {
+                    if (colliders[i].name == "BreckenBody")
+                    {
+                        body = colliders[i] as BoxCollider;
+                        break;
+                    }
+                }
+
+                float halfThickness = body != null
+                    ? body.size.z * body.transform.lossyScale.z * 0.5f
+                    : 0.5f;
+
+                Vector3 toShooter = damageSourcePosition - transform.position;
+                bool fallForward = Vector3.Dot(transform.forward, toShooter) < 0f;
+
+                transform.SetPositionAndRotation(
+                    transform.position + Vector3.up * halfThickness,
+                    Quaternion.Euler(fallForward ? 90f : -90f, transform.eulerAngles.y, 0f));
             }
 
             private void TickSearch(in RuntimeTickContext context)
