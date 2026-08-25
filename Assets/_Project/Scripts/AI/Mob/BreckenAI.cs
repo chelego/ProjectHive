@@ -99,6 +99,7 @@
             // 수색 임무를 만들어낸 자극의 발생 시각. 최신 정보를 더 우선해서 받아들이며, 타임아웃을 결정
             private float investigateStimulusTime;
             private int visitedInvestigatePointCount;
+            private NavMeshPath investigatePath;
 
 
             [Header("State - Attack")]
@@ -156,6 +157,7 @@
             {
                 agent = GetComponent<NavMeshAgent>();
                 health = GetComponent<Health>();
+                investigatePath = new NavMeshPath();
             }
 
             public void RuntimeTick(in RuntimeTickContext context)
@@ -902,6 +904,28 @@
             }
 
             /// <summary>
+            /// 해당 지점을 조사 지점으로 쓸 수 있는지 판단
+            /// 거의 제자리거나, 끊김 없이 갈 수 없다면 지점을 버린다
+            /// </summary>
+            /// <param name="point"></param>
+            /// <returns></returns>
+            private bool IsUsableInvestigatePoint(Vector3 point)
+            {
+                float arrivalDistance = agent.stoppingDistance + settings.ArrivalDistanceThreshold;
+                if ((point - transform.position).sqrMagnitude <= arrivalDistance * arrivalDistance)
+                {
+                    return false;
+                }
+
+                if (!agent.CalculatePath(point, investigatePath))
+                {
+                    return false;
+                }
+
+                return investigatePath.status == NavMeshPathStatus.PathComplete;
+            }
+
+            /// <summary>
             /// 첫 지점은 중심 근처에서 개체에서 갈라지는 자리
             /// 이후 지점은 반경 안 무작위
             /// </summary>
@@ -917,7 +941,8 @@
                     {
                         Vector3 entry = investigatePosition + fromCenter.normalized * investigateRadius;
 
-                        if (NavMesh.SamplePosition(entry, out NavMeshHit entryHit, 2f, NavMesh.AllAreas))
+                        if (NavMesh.SamplePosition(entry, out NavMeshHit entryHit, 2f, NavMesh.AllAreas) &&
+                            IsUsableInvestigatePoint(entryHit.position))
                         {
                             result = entryHit.position;
                             return true;
@@ -928,7 +953,8 @@
                 Vector2 offset = Random.insideUnitCircle * investigateRadius;
                 Vector3 candidate = investigatePosition + new Vector3(offset.x, 0f, offset.y);
 
-                if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, 2f, NavMesh.AllAreas))
+                if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, 2f, NavMesh.AllAreas) &&
+                    IsUsableInvestigatePoint(hit.position))
                 {
                     result = hit.position;
                     return true;
