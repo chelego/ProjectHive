@@ -12,7 +12,6 @@ namespace ProjectHive.Combat
         [SerializeField] private Vector3 restLocalEuler = new Vector3(8f, -18f, 0f);
         [SerializeField] private float executionZoomFieldOfView = 34f;
         [SerializeField] private float executionImpactShake = 0.035f;
-        [SerializeField] private float knifeAttackFieldOfViewKick = 4f;
 
         private static readonly Vector3 KnifeTipLocalPosition = new Vector3(0.004f, 0.395f, 0.022f);
 
@@ -104,17 +103,17 @@ namespace ProjectHive.Combat
             yield return AnimateKnifeStep(
                 restLocalPosition + new Vector3(0.08f, -0.04f, -0.12f),
                 restLocalEuler + new Vector3(34f, -56f, 42f),
-                cameraRestPosition + new Vector3(-0.015f, -0.01f, 0f),
-                cameraRestRotation * Quaternion.Euler(0f, -5f, 2f),
-                cameraRestFov + knifeAttackFieldOfViewKick,
+                cameraRestPosition,
+                cameraRestRotation,
+                cameraRestFov,
                 0.07f);
 
             yield return AnimateKnifeStep(
                 restLocalPosition + new Vector3(-0.1f, 0.02f, 0.38f),
                 restLocalEuler + new Vector3(-24f, 18f, -46f),
-                cameraRestPosition + new Vector3(0.018f, -0.018f, 0.025f),
-                cameraRestRotation * Quaternion.Euler(2f, 6f, -3f),
-                cameraRestFov - 1f,
+                cameraRestPosition,
+                cameraRestRotation,
+                cameraRestFov,
                 0.09f);
 
             yield return AnimateKnifeStep(
