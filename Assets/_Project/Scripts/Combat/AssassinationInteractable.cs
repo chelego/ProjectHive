@@ -11,7 +11,8 @@ namespace ProjectHive.Combat
         [SerializeField] private string prompt = "Assassinate";
         [SerializeField] private float minimumLethalDamage = 999f;
         [SerializeField] private float maxDistance = 1.8f;
-        [SerializeField] private float rearAngle = 80f;
+        [SerializeField] private float maxVerticalDistance = 1.5f;
+        [SerializeField] private float rearAngle = 120f;
 
         private Health health;
         private IAssassinationStateProvider assassinationState;
@@ -33,6 +34,10 @@ namespace ProjectHive.Combat
                 return false;
 
             Vector3 toTarget = transform.position - context.Origin;
+            if (Mathf.Abs(toTarget.y) > maxVerticalDistance)
+                return false;
+
+            toTarget.y = 0f;
             if (toTarget.sqrMagnitude > maxDistance * maxDistance)
                 return false;
 
@@ -90,6 +95,7 @@ namespace ProjectHive.Combat
         {
             minimumLethalDamage = Mathf.Max(0f, minimumLethalDamage);
             maxDistance = Mathf.Max(0.1f, maxDistance);
+            maxVerticalDistance = Mathf.Max(0.1f, maxVerticalDistance);
             rearAngle = Mathf.Clamp(rearAngle, 1f, 180f);
         }
     }

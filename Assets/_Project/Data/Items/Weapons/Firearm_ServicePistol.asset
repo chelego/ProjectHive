@@ -17,6 +17,11 @@ MonoBehaviour:
   feedType: 1
   visualProfile: 0
   displayColor: {r: 0.08, g: 0.1, b: 0.12, a: 1}
+  gunshotClip: {fileID: 8300000, guid: c4cd620e8d7838a4abb45ee5da395da7, type: 3}
+  viewModelPrefab: {fileID: 6949219968297497114, guid: 55b1fd5f577255c4a8338b61385780ec, type: 3}
+  viewModelLocalPosition: {x: 0, y: -0.03, z: 0.045}
+  viewModelLocalEulerAngles: {x: 0, y: 0, z: 0}
+  viewModelLocalScale: {x: 1.7, y: 1.7, z: 1.7}
   damage: 32
   fireRate: 4.5
   maxDistance: 95

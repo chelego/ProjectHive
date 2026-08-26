@@ -17,6 +17,11 @@ namespace ProjectHive.Combat
         [SerializeField] private FirearmFeedType feedType = FirearmFeedType.DetachableMagazine;
         [SerializeField] private FirearmVisualProfile visualProfile = FirearmVisualProfile.Pistol;
         [SerializeField] private Color displayColor = new Color(0.12f, 0.14f, 0.16f, 1f);
+        [SerializeField] private AudioClip gunshotClip;
+        [SerializeField] private GameObject viewModelPrefab;
+        [SerializeField] private Vector3 viewModelLocalPosition = Vector3.zero;
+        [SerializeField] private Vector3 viewModelLocalEulerAngles = Vector3.zero;
+        [SerializeField] private Vector3 viewModelLocalScale = Vector3.one;
         [SerializeField, Min(0f)] private float damage = 25f;
         [SerializeField, Min(0.01f)] private float fireRate = 4f;
         [SerializeField, Min(1f)] private float maxDistance = 120f;
@@ -33,6 +38,11 @@ namespace ProjectHive.Combat
         public FirearmFeedType FeedType => feedType;
         public FirearmVisualProfile VisualProfile => visualProfile;
         public Color DisplayColor => displayColor;
+        public AudioClip GunshotClip => gunshotClip;
+        public GameObject ViewModelPrefab => viewModelPrefab;
+        public Vector3 ViewModelLocalPosition => viewModelLocalPosition;
+        public Vector3 ViewModelLocalEulerAngles => viewModelLocalEulerAngles;
+        public Vector3 ViewModelLocalScale => viewModelLocalScale;
         public float Damage => damage;
         public float FireRate => fireRate;
         public float MaxDistance => maxDistance;
@@ -60,6 +70,10 @@ namespace ProjectHive.Combat
             spreadDegrees = Mathf.Max(0f, spreadDegrees);
             magazineCapacity = Mathf.Max(0, magazineCapacity);
             cylinderCapacity = Mathf.Max(1, cylinderCapacity);
+            viewModelLocalScale = new Vector3(
+                Mathf.Max(0.0001f, viewModelLocalScale.x),
+                Mathf.Max(0.0001f, viewModelLocalScale.y),
+                Mathf.Max(0.0001f, viewModelLocalScale.z));
         }
     }
 }

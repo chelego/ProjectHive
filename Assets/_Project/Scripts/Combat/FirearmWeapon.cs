@@ -1,6 +1,7 @@
 using ProjectHive.Core.Contracts;
 using ProjectHive.Core.Events;
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace ProjectHive.Combat
@@ -64,12 +65,33 @@ namespace ProjectHive.Combat
         private Transform generatedLeftHandRoot;
         private Transform generatedReloadProp;
         private Transform generatedDroppedMagazine;
+        private Transform customViewModelMagazine;
+        private Transform customViewModelSlide;
+        private bool usingCustomMagazineRig;
+        private bool usingCustomRevolverRig;
+        private Transform[] customRevolverRounds;
+        private Transform[] customRevolverEjectedRounds;
+        private Vector3 customRevolverCylinderBaseLocalPosition;
+        private Quaternion customRevolverCylinderBaseLocalRotation = Quaternion.identity;
+        private Vector3 customMagazineSocketLocalPosition;
+        private Quaternion customMagazineSocketLocalRotation = Quaternion.identity;
+        private Vector3 customSlideBaseLocalPosition;
+        private Quaternion customSlideBaseLocalRotation = Quaternion.identity;
+        private Vector3 viewModelBaseLocalPosition;
+        private Quaternion viewModelBaseLocalRotation = Quaternion.identity;
         private Material runtimeVisualMaterial;
         private Material runtimeHandMaterial;
         private Material runtimeMagazineMaterial;
         private Material runtimeCartridgeMaterial;
+        private readonly List<Mesh> generatedMeshes = new List<Mesh>(2);
+        private readonly RaycastHit[] hitscanBuffer = new RaycastHit[16];
         private FirearmAmmoState[] loadoutAmmoStates;
         private bool viewModelVisible = true;
+        private const float CustomRevolverTurnStartSeconds = 0.10f;
+        private const float CustomRevolverTurnEndSeconds = 0.39f;
+        private const float CustomRevolverCylinderOpenStartSeconds = 0.39f;
+        private const float CustomRevolverCylinderOpenEndSeconds = 0.49f;
+        private const float CustomRevolverInsertionStartSeconds = 0.52f;
 
         public bool CanFire => Time.time >= nextFireTime;
         public int EquippedLoadoutIndex => equippedLoadoutIndex;
@@ -316,18 +338,40 @@ namespace ProjectHive.Combat
         private float CalculateReloadDuration()
         {
             if (FeedType != FirearmFeedType.Revolver)
-                return reloadDuration;
+                return usingCustomMagazineRig ? reloadDuration * 1.35f : reloadDuration;
 
             int roundsToAnimate = Mathf.Max(1, reloadInsertedRoundCount);
-            return revolverReloadSecondsPerRound * roundsToAnimate;
+            float duration = revolverReloadSecondsPerRound * roundsToAnimate;
+            return usingCustomRevolverRig ? Mathf.Max(1.75f, duration * 1.45f) : duration;
         }
 
         private bool TryHitscanHit(GameObject owner, Vector3 origin, Vector3 direction, out RaycastHit hit)
         {
-            if (!Physics.Raycast(origin, direction, out hit, maxDistance, hitMask, QueryTriggerInteraction.Ignore))
-                return false;
+            hit = default;
+            int hitCount = Physics.RaycastNonAlloc(
+                origin,
+                direction,
+                hitscanBuffer,
+                maxDistance,
+                hitMask,
+                QueryTriggerInteraction.Ignore);
+            float nearestDistance = float.MaxValue;
 
-            return owner == null || !hit.transform.IsChildOf(owner.transform);
+            for (int i = 0; i < hitCount; i++)
+            {
+                RaycastHit candidate = hitscanBuffer[i];
+                if (candidate.collider == null ||
+                    (owner != null && candidate.transform.IsChildOf(owner.transform)) ||
+                    candidate.distance >= nearestDistance)
+                {
+                    continue;
+                }
+
+                nearestDistance = candidate.distance;
+                hit = candidate;
+            }
+
+            return nearestDistance < float.MaxValue;
         }
 
         private void PlayShotEffects(
@@ -429,6 +473,9 @@ namespace ProjectHive.Combat
             cylinderCapacity = definition.CylinderCapacity;
             gunshotLoudness = definition.GunshotLoudness;
             gunshotRadius = definition.GunshotRadius;
+
+            if (ballisticEffects != null)
+                ballisticEffects.SetGunshotClip(definition.GunshotClip);
         }
 
         private void InitializeAmmo()
@@ -542,11 +589,29 @@ namespace ProjectHive.Combat
         {
             Transform root = visualRoot != null ? visualRoot : transform;
             ClearGeneratedViewModel();
+            generatedRevolverCylinder = null;
+
+            if (definition != null && definition.ViewModelPrefab != null)
+            {
+                generatedVisualRoot = Instantiate(definition.ViewModelPrefab);
+                generatedVisualRoot.name = $"{definition.DisplayName} View Model";
+                generatedVisualRoot.transform.SetParent(root, false);
+                viewModelBaseLocalPosition = definition.ViewModelLocalPosition;
+                viewModelBaseLocalRotation = Quaternion.Euler(definition.ViewModelLocalEulerAngles);
+                generatedVisualRoot.transform.localPosition = viewModelBaseLocalPosition;
+                generatedVisualRoot.transform.localRotation = viewModelBaseLocalRotation;
+                generatedVisualRoot.transform.localScale = definition.ViewModelLocalScale;
+                SetupCustomPistolViewModel(generatedVisualRoot.transform);
+                generatedVisualRoot.SetActive(viewModelVisible);
+                return;
+            }
 
             generatedVisualRoot = new GameObject("Generated Firearm View Model");
             generatedVisualRoot.transform.SetParent(root, false);
-            generatedVisualRoot.transform.localPosition = Vector3.zero;
-            generatedVisualRoot.transform.localRotation = Quaternion.identity;
+            viewModelBaseLocalPosition = Vector3.zero;
+            viewModelBaseLocalRotation = Quaternion.identity;
+            generatedVisualRoot.transform.localPosition = viewModelBaseLocalPosition;
+            generatedVisualRoot.transform.localRotation = viewModelBaseLocalRotation;
             generatedRevolverCylinder = null;
 
             FirearmVisualProfile profile =
@@ -620,12 +685,21 @@ namespace ProjectHive.Combat
             float reloadRoll = revolverReload ? -36f * revolverPose : -26f * pistolPose;
             float reloadX = pistolReload ? 0.07f * pistolPose : 0f;
             float reloadY = revolverReload ? -0.13f * revolverPose : 0.07f * pistolPose;
+            if (revolverReload && usingCustomRevolverRig)
+            {
+                float reloadElapsed = Time.time - reloadStartTime;
+                float turnover = Mathf.SmoothStep(
+                    0f,
+                    1f,
+                    Mathf.InverseLerp(CustomRevolverTurnStartSeconds, CustomRevolverTurnEndSeconds, reloadElapsed));
+                reloadPitch -= 360f * turnover;
+            }
 
-            generatedVisualRoot.transform.localPosition = new Vector3(
+            generatedVisualRoot.transform.localPosition = viewModelBaseLocalPosition + new Vector3(
                 reloadX,
                 recoilLift * recoil + reloadY,
                 -recoilDistance * recoil);
-            generatedVisualRoot.transform.localRotation = Quaternion.Euler(
+            generatedVisualRoot.transform.localRotation = viewModelBaseLocalRotation * Quaternion.Euler(
                 -recoilAngle * recoil + reloadPitch,
                 reloadYaw,
                 reloadRoll);
@@ -633,9 +707,25 @@ namespace ProjectHive.Combat
             if (generatedRevolverCylinder != null)
             {
                 float cylinderSpin = revolverReload
-                    ? 72f * Mathf.Max(1, reloadInsertedRoundCount) * GetRevolverInsertionProgress(reloadProgress)
+                    ? usingCustomRevolverRig
+                        ? CalculateCustomRevolverCylinderSpin(Time.time - reloadStartTime)
+                        : 72f * Mathf.Max(1, reloadInsertedRoundCount) * GetRevolverInsertionProgress(reloadProgress)
                     : 0f;
-                generatedRevolverCylinder.localRotation = Quaternion.Euler(90f, cylinderSpin, 0f);
+                if (usingCustomRevolverRig)
+                {
+                    float cylinderOpen = revolverReload
+                        ? CalculateCustomRevolverCylinderOpen(reloadProgress, Time.time - reloadStartTime)
+                        : 0f;
+                    generatedRevolverCylinder.localPosition =
+                        customRevolverCylinderBaseLocalPosition +
+                        new Vector3(-0.026f * cylinderOpen, 0.003f * cylinderOpen, 0.005f * cylinderOpen);
+                    generatedRevolverCylinder.localRotation =
+                        customRevolverCylinderBaseLocalRotation * Quaternion.Euler(0f, cylinderSpin, 0f);
+                }
+                else
+                {
+                    generatedRevolverCylinder.localRotation = Quaternion.Euler(90f, cylinderSpin, 0f);
+                }
             }
 
             AnimateReloadHand(reload, reloadProgress);
@@ -737,9 +827,23 @@ namespace ProjectHive.Combat
                 return;
 
             bool reloading = IsReloading;
-            generatedLeftHandRoot.gameObject.SetActive(reloading);
+            generatedLeftHandRoot.gameObject.SetActive(reloading && !usingCustomRevolverRig);
             if (!reloading)
+            {
+                if (customViewModelMagazine != null)
+                    customViewModelMagazine.gameObject.SetActive(false);
+                ResetCustomSlidePose();
+                if (usingCustomRevolverRig)
+                {
+                    UpdateCustomRevolverAmmoVisuals(1f, false);
+                    HideCustomRevolverEjectedRounds();
+                }
+                if (generatedReloadProp != null)
+                    generatedReloadProp.gameObject.SetActive(false);
+                if (generatedDroppedMagazine != null)
+                    generatedDroppedMagazine.gameObject.SetActive(false);
                 return;
+            }
 
             if (FeedType == FirearmFeedType.Revolver)
                 AnimateRevolverReloadHand(reload, reloadProgress);
@@ -749,15 +853,25 @@ namespace ProjectHive.Combat
 
         private void AnimatePistolReloadHand(float reloadProgress)
         {
+            if (usingCustomMagazineRig)
+            {
+                AnimateCustomPistolMagazineReload(reloadProgress);
+                return;
+            }
+
             Vector3 magwell = new Vector3(0f, -0.22f, -0.12f);
             Vector3 heldMagazineOffset = new Vector3(0f, 0.08f, 0.02f);
             float insert = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.42f, 0.88f, reloadProgress));
             float settle = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.88f, 1f, reloadProgress));
+            bool magazineSeated = reloadProgress < 0.06f || reloadProgress >= 0.88f;
             Vector3 start = magwell - heldMagazineOffset + new Vector3(-0.025f, -0.28f, 0.015f);
             Vector3 socket = magwell - heldMagazineOffset;
             Vector3 stow = new Vector3(-0.27f, -0.27f, -0.12f);
             generatedLeftHandRoot.localPosition = Vector3.Lerp(Vector3.Lerp(start, socket, insert), stow, settle);
             generatedLeftHandRoot.localRotation = Quaternion.Euler(10f - 4f * insert, 0f, 6f - 12f * settle);
+
+            if (customViewModelMagazine != null)
+                customViewModelMagazine.gameObject.SetActive(magazineSeated);
 
             if (generatedReloadProp != null)
             {
@@ -782,8 +896,132 @@ namespace ProjectHive.Combat
             }
         }
 
+        private void AnimateCustomPistolMagazineReload(float reloadProgress)
+        {
+            Vector3 socket = customMagazineSocketLocalPosition;
+            Vector3 removedStart = socket + new Vector3(0f, 0.015f, 0f);
+            Vector3 removedMid = socket + new Vector3(0.012f, -0.34f, -0.035f);
+            Vector3 removedEnd = socket + new Vector3(0.06f, -0.9f, 0.08f);
+            Vector3 insertStart = socket + new Vector3(-0.018f, -0.55f, -0.015f);
+            Vector3 insertGuide = socket + new Vector3(-0.006f, -0.17f, -0.004f);
+            Vector3 handOffset = new Vector3(-0.055f, -0.055f, -0.02f);
+            float drop = Mathf.Clamp01(Mathf.InverseLerp(0f, 0.62f, reloadProgress));
+            float dropFall = Mathf.SmoothStep(0f, 1f, drop);
+            float approach = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.42f, 0.72f, reloadProgress));
+            float insert = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.72f, 0.96f, reloadProgress));
+            float stow = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.90f, 1f, reloadProgress));
+
+            if (customViewModelMagazine != null)
+            {
+                customViewModelMagazine.gameObject.SetActive(false);
+                customViewModelMagazine.localPosition = socket;
+                customViewModelMagazine.localRotation = customMagazineSocketLocalRotation;
+            }
+            AnimateCustomSlidePull(reloadProgress);
+
+            if (generatedDroppedMagazine != null)
+            {
+                bool dropping = reloadProgress < 0.62f;
+                generatedDroppedMagazine.gameObject.SetActive(dropping);
+                if (dropping)
+                {
+                    generatedDroppedMagazine.localPosition =
+                        Vector3.Lerp(
+                            Vector3.Lerp(removedStart, removedMid, dropFall),
+                            Vector3.Lerp(removedMid, removedEnd, dropFall),
+                            dropFall);
+                    generatedDroppedMagazine.localRotation =
+                        customMagazineSocketLocalRotation * Quaternion.Euler(35f * dropFall, 16f * dropFall, -240f * dropFall);
+                }
+            }
+
+            if (generatedReloadProp != null)
+            {
+                bool inserting = reloadProgress >= 0.42f && reloadProgress < 0.985f;
+                generatedReloadProp.gameObject.SetActive(inserting);
+                if (inserting)
+                {
+                    Vector3 reloadPosition = Vector3.Lerp(
+                        Vector3.Lerp(insertStart, insertGuide, approach),
+                        socket,
+                        insert);
+                    generatedReloadProp.localPosition = reloadPosition;
+                    generatedReloadProp.localRotation =
+                        customMagazineSocketLocalRotation * Quaternion.Euler(0f, 0f, 4f * (1f - insert));
+
+                    if (generatedLeftHandRoot != null)
+                    {
+                        generatedLeftHandRoot.localPosition = Vector3.Lerp(
+                            reloadPosition + handOffset,
+                            new Vector3(-0.32f, -0.22f, -0.12f),
+                            stow);
+                        generatedLeftHandRoot.localRotation = Quaternion.Euler(8f, 0f, 8f - 18f * insert);
+                    }
+                }
+            }
+
+            AnimateCustomSlideHand(reloadProgress);
+        }
+
+        private void AnimateCustomSlidePull(float reloadProgress)
+        {
+            if (customViewModelSlide == null)
+                return;
+
+            const float slidePullDistance = 0.063f;
+            float pull = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.86f, 0.96f, reloadProgress));
+            float release = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.96f, 1f, reloadProgress));
+            float slide = pull * (1f - release);
+            customViewModelSlide.localPosition =
+                customSlideBaseLocalPosition + new Vector3(0f, 0f, -slidePullDistance * slide);
+            customViewModelSlide.localRotation =
+                customSlideBaseLocalRotation * Quaternion.Euler(-4f * slide, 0f, 0f);
+        }
+
+        private void AnimateCustomSlideHand(float reloadProgress)
+        {
+            if (generatedLeftHandRoot == null)
+                return;
+
+            const float slidePullDistance = 0.063f;
+            float reach = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.78f, 0.86f, reloadProgress));
+            float pull = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.86f, 0.96f, reloadProgress));
+            float release = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.96f, 1f, reloadProgress));
+            float slide = pull * (1f - release);
+            float active = reach * (1f - release);
+            if (active <= 0f)
+                return;
+
+            generatedLeftHandRoot.gameObject.SetActive(true);
+            Vector3 ready = generatedLeftHandRoot.localPosition;
+            Vector3 grab = new Vector3(-0.035f, 0.075f, 0.045f);
+            Vector3 pulled = grab + new Vector3(0f, 0f, -slidePullDistance * slide);
+            Vector3 releasePose = new Vector3(-0.30f, -0.20f, -0.12f);
+            generatedLeftHandRoot.localPosition =
+                Vector3.Lerp(Vector3.Lerp(ready, pulled, reach), releasePose, release);
+            generatedLeftHandRoot.localRotation = Quaternion.Euler(
+                -18f + 8f * release,
+                0f,
+                -24f + 12f * release);
+        }
+
+        private void ResetCustomSlidePose()
+        {
+            if (customViewModelSlide == null)
+                return;
+
+            customViewModelSlide.localPosition = customSlideBaseLocalPosition;
+            customViewModelSlide.localRotation = customSlideBaseLocalRotation;
+        }
+
         private void AnimateRevolverReloadHand(float reload, float reloadProgress)
         {
+            if (usingCustomRevolverRig)
+            {
+                AnimateCustomRevolverReloadHand(reloadProgress);
+                return;
+            }
+
             int roundsToAnimate = Mathf.Max(1, reloadInsertedRoundCount);
             float insertionProgress = GetRevolverInsertionProgress(reloadProgress);
             float chamberStep = Mathf.Repeat(insertionProgress * roundsToAnimate, 1f);
@@ -808,7 +1046,104 @@ namespace ProjectHive.Combat
             {
                 generatedReloadProp.gameObject.SetActive(reloadProgress < 0.82f);
                 generatedReloadProp.localPosition = new Vector3(0.02f, 0.035f, 0.13f - 0.08f * push);
-                generatedReloadProp.localRotation = Quaternion.Euler(90f, 0f, 0f);
+                generatedReloadProp.localRotation = usingCustomRevolverRig
+                    ? Quaternion.Euler(0f, 180f, 180f)
+                    : Quaternion.Euler(90f, 0f, 0f);
+            }
+        }
+
+        private void AnimateCustomRevolverReloadHand(float reloadProgress)
+        {
+            if (generatedLeftHandRoot != null)
+                generatedLeftHandRoot.gameObject.SetActive(false);
+
+            int roundsToAnimate = Mathf.Max(1, reloadInsertedRoundCount);
+            float reloadElapsed = Time.time - reloadStartTime;
+            float rawStep = GetCustomRevolverInsertionRawStep(reloadElapsed);
+            float cappedStep = Mathf.Min(rawStep, roundsToAnimate);
+            float insertionProgress = Mathf.Clamp01(cappedStep / roundsToAnimate);
+            float chamberStep = cappedStep >= roundsToAnimate ? 1f : Mathf.Repeat(cappedStep, 1f);
+            float approach = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.05f, 0.28f, chamberStep));
+            float insert = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.28f, 0.62f, chamberStep));
+            float withdraw = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.64f, 0.84f, chamberStep));
+            float finish = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.84f, 1f, reloadProgress));
+
+            int visibleInsertedRounds = Mathf.Clamp(Mathf.FloorToInt(cappedStep), 0, roundsToAnimate);
+            if (chamberStep >= 0.62f && visibleInsertedRounds < roundsToAnimate)
+                visibleInsertedRounds++;
+
+            UpdateCustomRevolverAmmoVisuals((float)visibleInsertedRounds / roundsToAnimate, true);
+            AnimateCustomRevolverEjection(reloadElapsed);
+
+            Vector3 ready = new Vector3(-0.18f, -0.105f, 0.09f);
+            Vector3 chamberMouth = new Vector3(-0.115f, -0.095f, 0.105f);
+            Vector3 seated = new Vector3(-0.078f, -0.095f, 0.105f);
+            Vector3 stow = new Vector3(-0.34f, -0.17f, -0.10f);
+            Vector3 cartridgePosition =
+                Vector3.Lerp(
+                    Vector3.Lerp(ready, chamberMouth, approach),
+                    seated,
+                    insert);
+
+            if (generatedReloadProp != null)
+            {
+                bool showCartridge =
+                    reloadElapsed >= CustomRevolverInsertionStartSeconds &&
+                    insertionProgress > 0f &&
+                    reloadProgress < 0.98f &&
+                    chamberStep >= 0.08f &&
+                    chamberStep < 0.66f;
+                generatedReloadProp.gameObject.SetActive(showCartridge);
+                if (showCartridge)
+                {
+                    generatedReloadProp.localPosition = cartridgePosition;
+                    generatedReloadProp.localRotation = Quaternion.Euler(0f, 180f, 180f);
+                }
+            }
+        }
+
+        private void AnimateCustomRevolverEjection(float reloadElapsed)
+        {
+            if (customRevolverEjectedRounds == null || customRevolverEjectedRounds.Length == 0)
+                return;
+
+            bool ejecting = reloadElapsed >= 0.62f && reloadElapsed < 1.12f;
+            float drop = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.62f, 1.12f, reloadElapsed));
+            for (int i = 0; i < customRevolverEjectedRounds.Length; i++)
+            {
+                Transform round = customRevolverEjectedRounds[i];
+                if (round == null)
+                    continue;
+
+                round.gameObject.SetActive(ejecting);
+                if (!ejecting)
+                    continue;
+
+                float side = i - (customRevolverEjectedRounds.Length - 1) * 0.5f;
+                Vector3 start = new Vector3(-0.035f + side * 0.008f, -0.095f, 0.09f + side * 0.006f);
+                Vector3 arc = start + new Vector3(-0.03f + side * 0.012f, -0.18f, 0.025f);
+                Vector3 end = start + new Vector3(-0.07f + side * 0.018f, -0.72f, -0.035f);
+                round.localPosition =
+                    Vector3.Lerp(
+                        Vector3.Lerp(start, arc, drop),
+                        Vector3.Lerp(arc, end, drop),
+                        drop);
+                round.localRotation = Quaternion.Euler(
+                    60f * drop,
+                    180f + 460f * drop + side * 20f,
+                    180f + 720f * drop);
+            }
+        }
+
+        private void HideCustomRevolverEjectedRounds()
+        {
+            if (customRevolverEjectedRounds == null)
+                return;
+
+            for (int i = 0; i < customRevolverEjectedRounds.Length; i++)
+            {
+                if (customRevolverEjectedRounds[i] != null)
+                    customRevolverEjectedRounds[i].gameObject.SetActive(false);
             }
         }
 
@@ -817,10 +1152,44 @@ namespace ProjectHive.Combat
             return Mathf.Clamp01(reloadProgress / 0.82f);
         }
 
+        private static float GetCustomRevolverInsertionProgress(float reloadProgress)
+        {
+            return Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.72f, 0.96f, reloadProgress));
+        }
+
+        private static float CalculateCustomRevolverCylinderOpen(float reloadProgress, float reloadElapsed)
+        {
+            float open = Mathf.SmoothStep(
+                0f,
+                1f,
+                Mathf.InverseLerp(
+                    CustomRevolverCylinderOpenStartSeconds,
+                    CustomRevolverCylinderOpenEndSeconds,
+                    reloadElapsed));
+            float close = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.92f, 1f, reloadProgress));
+            return open * (1f - close);
+        }
+
+        private float CalculateCustomRevolverCylinderSpin(float reloadElapsed)
+        {
+            int roundsToAnimate = Mathf.Max(1, reloadInsertedRoundCount);
+            float cappedStep = Mathf.Min(GetCustomRevolverInsertionRawStep(reloadElapsed), roundsToAnimate);
+            int chamberIndex = Mathf.Clamp(Mathf.FloorToInt(cappedStep), 0, roundsToAnimate - 1);
+            float chamberStep = cappedStep >= roundsToAnimate ? 1f : Mathf.Repeat(cappedStep, 1f);
+            float advance = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.78f, 0.98f, chamberStep));
+            return 60f * (chamberIndex + advance);
+        }
+
+        private float GetCustomRevolverInsertionRawStep(float reloadElapsed)
+        {
+            float secondsPerRound = Mathf.Max(0.05f, revolverReloadSecondsPerRound);
+            return Mathf.Max(0f, (reloadElapsed - CustomRevolverInsertionStartSeconds) / secondsPerRound);
+        }
+
         private static float CalculateRevolverReloadPose(float reloadProgress)
         {
-            float open = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0f, 0.12f, reloadProgress));
-            float close = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.82f, 1f, reloadProgress));
+            float open = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0f, 0.16f, reloadProgress));
+            float close = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.88f, 1f, reloadProgress));
             return open * (1f - close);
         }
 
@@ -833,15 +1202,304 @@ namespace ProjectHive.Combat
 
         private void ClearGeneratedViewModel()
         {
-            if (generatedVisualRoot == null)
-                return;
+            if (generatedVisualRoot != null)
+                Destroy(generatedVisualRoot);
 
-            Destroy(generatedVisualRoot);
+            for (int i = 0; i < generatedMeshes.Count; i++)
+            {
+                if (generatedMeshes[i] != null)
+                    Destroy(generatedMeshes[i]);
+            }
+            generatedMeshes.Clear();
+
+            DestroyRuntimeMaterial(ref runtimeVisualMaterial);
+            DestroyRuntimeMaterial(ref runtimeHandMaterial);
+            DestroyRuntimeMaterial(ref runtimeMagazineMaterial);
+            DestroyRuntimeMaterial(ref runtimeCartridgeMaterial);
+
             generatedVisualRoot = null;
             generatedRevolverCylinder = null;
             generatedLeftHandRoot = null;
             generatedReloadProp = null;
             generatedDroppedMagazine = null;
+            customViewModelMagazine = null;
+            customViewModelSlide = null;
+            usingCustomMagazineRig = false;
+            usingCustomRevolverRig = false;
+            customRevolverRounds = null;
+            customRevolverEjectedRounds = null;
+            customRevolverCylinderBaseLocalPosition = Vector3.zero;
+            customRevolverCylinderBaseLocalRotation = Quaternion.identity;
+            customMagazineSocketLocalPosition = Vector3.zero;
+            customMagazineSocketLocalRotation = Quaternion.identity;
+            customSlideBaseLocalPosition = Vector3.zero;
+            customSlideBaseLocalRotation = Quaternion.identity;
+        }
+
+        private static void DestroyRuntimeMaterial(ref Material material)
+        {
+            if (material != null)
+                Destroy(material);
+
+            material = null;
+        }
+
+        private void OnDestroy()
+        {
+            ClearGeneratedViewModel();
+        }
+
+        private void SetupCustomPistolViewModel(Transform root)
+        {
+            usingCustomMagazineRig = false;
+            usingCustomRevolverRig = false;
+
+            if (FeedType == FirearmFeedType.Revolver)
+            {
+                SetupCustomRevolverViewModel(root);
+                return;
+            }
+
+            customViewModelMagazine = FindChildByNamePart(root, "Magazine");
+            customViewModelSlide = FindChildByNamePart(root, "Body");
+            TrySplitCustomBodyForSlide();
+            if (customViewModelSlide != null)
+            {
+                customSlideBaseLocalPosition = customViewModelSlide.localPosition;
+                customSlideBaseLocalRotation = customViewModelSlide.localRotation;
+            }
+            Transform looseBullet = FindChildByNamePart(root, "Bullet");
+            if (looseBullet != null)
+                looseBullet.gameObject.SetActive(false);
+            BuildCustomPistolReloadRig(root);
+        }
+
+        private void SetupCustomRevolverViewModel(Transform root)
+        {
+            generatedRevolverCylinder = FindChildByNamePart(root, "Cylinder");
+            if (generatedRevolverCylinder == null)
+                return;
+
+            usingCustomRevolverRig = true;
+            customRevolverCylinderBaseLocalPosition = generatedRevolverCylinder.localPosition;
+            customRevolverCylinderBaseLocalRotation = generatedRevolverCylinder.localRotation;
+            customRevolverRounds = CollectCustomRevolverRounds(generatedRevolverCylinder);
+            UpdateCustomRevolverAmmoVisuals(1f, false);
+            BuildCustomRevolverReloadRig(root);
+        }
+
+        private Transform[] CollectCustomRevolverRounds(Transform cylinder)
+        {
+            List<Transform> rounds = new List<Transform>();
+            for (int i = 0; i < cylinder.childCount; i++)
+            {
+                Transform child = cylinder.GetChild(i);
+                if (child.name.IndexOf("Shell", StringComparison.OrdinalIgnoreCase) >= 0)
+                    rounds.Add(child);
+            }
+
+            return rounds.ToArray();
+        }
+
+        private void BuildCustomRevolverReloadRig(Transform root)
+        {
+            GameObject hand = new GameObject("Left Reload Hand");
+            hand.transform.SetParent(root, false);
+            generatedLeftHandRoot = hand.transform;
+
+            if (customRevolverRounds != null && customRevolverRounds.Length > 0 && customRevolverRounds[0] != null)
+            {
+                GameObject cartridge = Instantiate(customRevolverRounds[0].gameObject, root, false);
+                cartridge.name = "Reload Reichsrevolver Cartridge";
+                generatedReloadProp = cartridge.transform;
+                generatedReloadProp.localPosition = new Vector3(-0.32f, -0.08f, -0.03f);
+                generatedReloadProp.localRotation = Quaternion.Euler(0f, 180f, 180f);
+                generatedReloadProp.localScale = Vector3.one;
+                generatedReloadProp.gameObject.SetActive(false);
+
+                customRevolverEjectedRounds = new Transform[customRevolverRounds.Length];
+                for (int i = 0; i < customRevolverRounds.Length; i++)
+                {
+                    GameObject ejected = Instantiate(customRevolverRounds[i].gameObject, root, false);
+                    ejected.name = $"Ejected Reichsrevolver Cartridge {i + 1}";
+                    customRevolverEjectedRounds[i] = ejected.transform;
+                    ejected.SetActive(false);
+                }
+            }
+
+            hand.SetActive(false);
+        }
+
+        private void UpdateCustomRevolverAmmoVisuals(float insertionProgress, bool reloading)
+        {
+            if (customRevolverRounds == null || customRevolverRounds.Length == 0)
+                return;
+
+            int liveRounds = CountRevolverRounds(RevolverChamberState.Live);
+            int visibleRounds = reloading
+                ? Mathf.Clamp(Mathf.FloorToInt(insertionProgress * Mathf.Max(1, reloadInsertedRoundCount)), 0, liveRounds)
+                : liveRounds;
+
+            for (int i = 0; i < customRevolverRounds.Length; i++)
+            {
+                Transform round = customRevolverRounds[i];
+                if (round == null)
+                    continue;
+
+                round.gameObject.SetActive(i < visibleRounds);
+            }
+        }
+
+        private void BuildCustomPistolReloadRig(Transform root)
+        {
+            if (customViewModelMagazine == null)
+                return;
+
+            GameObject hand = new GameObject("Left Reload Hand");
+            hand.transform.SetParent(root, false);
+            generatedLeftHandRoot = hand.transform;
+
+            usingCustomMagazineRig = true;
+            customMagazineSocketLocalPosition = new Vector3(0f, -0.09f, -0.075f);
+            customMagazineSocketLocalRotation = Quaternion.identity;
+            customViewModelMagazine.localPosition = customMagazineSocketLocalPosition;
+            customViewModelMagazine.localRotation = customMagazineSocketLocalRotation;
+            customViewModelMagazine.gameObject.SetActive(false);
+
+            GameObject reloadMagazine = Instantiate(customViewModelMagazine.gameObject, root, false);
+            reloadMagazine.name = "Reload Magazine";
+            generatedReloadProp = reloadMagazine.transform;
+            generatedReloadProp.localPosition = customMagazineSocketLocalPosition;
+            generatedReloadProp.localRotation = customMagazineSocketLocalRotation;
+            generatedReloadProp.gameObject.SetActive(false);
+
+            GameObject droppedMagazine = Instantiate(customViewModelMagazine.gameObject, root, false);
+            droppedMagazine.name = "Dropped Magazine";
+            generatedDroppedMagazine = droppedMagazine.transform;
+            generatedDroppedMagazine.localPosition = customMagazineSocketLocalPosition;
+            generatedDroppedMagazine.localRotation = customMagazineSocketLocalRotation;
+            generatedDroppedMagazine.gameObject.SetActive(false);
+
+            hand.SetActive(false);
+        }
+
+        private void TrySplitCustomBodyForSlide()
+        {
+            if (customViewModelSlide == null)
+                return;
+
+            MeshFilter sourceFilter = customViewModelSlide.GetComponent<MeshFilter>();
+            MeshRenderer sourceRenderer = customViewModelSlide.GetComponent<MeshRenderer>();
+            if (sourceFilter == null || sourceRenderer == null || sourceFilter.sharedMesh == null)
+                return;
+
+            Mesh sourceMesh = sourceFilter.sharedMesh;
+            float slideThreshold = sourceMesh.bounds.center.y + sourceMesh.bounds.extents.y * 0.55f;
+            Mesh slideMesh = CreateMeshPart(sourceMesh, slideThreshold, true);
+            Mesh frameMesh = CreateMeshPart(sourceMesh, slideThreshold, false);
+            if (slideMesh == null || frameMesh == null)
+            {
+                if (slideMesh != null)
+                    Destroy(slideMesh);
+                if (frameMesh != null)
+                    Destroy(frameMesh);
+                return;
+            }
+
+            generatedMeshes.Add(slideMesh);
+            generatedMeshes.Add(frameMesh);
+
+            GameObject frame = new GameObject("Generated FiveSeven Frame");
+            frame.transform.SetParent(customViewModelSlide.parent, false);
+            frame.transform.localPosition = customViewModelSlide.localPosition;
+            frame.transform.localRotation = customViewModelSlide.localRotation;
+            frame.transform.localScale = customViewModelSlide.localScale;
+            MeshFilter frameFilter = frame.AddComponent<MeshFilter>();
+            frameFilter.sharedMesh = frameMesh;
+            MeshRenderer frameRenderer = frame.AddComponent<MeshRenderer>();
+            frameRenderer.sharedMaterials = sourceRenderer.sharedMaterials;
+
+            GameObject slide = new GameObject("Generated FiveSeven Slide");
+            slide.transform.SetParent(customViewModelSlide.parent, false);
+            slide.transform.localPosition = customViewModelSlide.localPosition;
+            slide.transform.localRotation = customViewModelSlide.localRotation;
+            slide.transform.localScale = customViewModelSlide.localScale;
+            MeshFilter slideFilter = slide.AddComponent<MeshFilter>();
+            slideFilter.sharedMesh = slideMesh;
+            MeshRenderer slideRenderer = slide.AddComponent<MeshRenderer>();
+            slideRenderer.sharedMaterials = sourceRenderer.sharedMaterials;
+
+            sourceRenderer.enabled = false;
+            customViewModelSlide = slide.transform;
+        }
+
+        private static Mesh CreateMeshPart(Mesh sourceMesh, float localYThreshold, bool upper)
+        {
+            Vector3[] vertices = sourceMesh.vertices;
+            if (vertices == null || vertices.Length == 0)
+                return null;
+
+            Mesh mesh = new Mesh();
+            mesh.name = upper ? $"{sourceMesh.name}_SlidePart" : $"{sourceMesh.name}_FramePart";
+            mesh.vertices = vertices;
+            mesh.normals = sourceMesh.normals;
+            mesh.tangents = sourceMesh.tangents;
+            mesh.uv = sourceMesh.uv;
+            mesh.uv2 = sourceMesh.uv2;
+            mesh.colors = sourceMesh.colors;
+            mesh.bindposes = sourceMesh.bindposes;
+            mesh.subMeshCount = sourceMesh.subMeshCount;
+
+            int triangleCount = 0;
+            for (int subMesh = 0; subMesh < sourceMesh.subMeshCount; subMesh++)
+            {
+                int[] sourceTriangles = sourceMesh.GetTriangles(subMesh);
+                List<int> triangles = new List<int>(sourceTriangles.Length);
+                for (int i = 0; i + 2 < sourceTriangles.Length; i += 3)
+                {
+                    int a = sourceTriangles[i];
+                    int b = sourceTriangles[i + 1];
+                    int c = sourceTriangles[i + 2];
+                    float centerY = (vertices[a].y + vertices[b].y + vertices[c].y) / 3f;
+                    if (upper == centerY >= localYThreshold)
+                    {
+                        triangles.Add(a);
+                        triangles.Add(b);
+                        triangles.Add(c);
+                    }
+                }
+
+                triangleCount += triangles.Count;
+                mesh.SetTriangles(triangles, subMesh);
+            }
+
+            if (triangleCount == 0)
+            {
+                Destroy(mesh);
+                return null;
+            }
+
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        private static Transform FindChildByNamePart(Transform root, string namePart)
+        {
+            if (root == null || string.IsNullOrWhiteSpace(namePart))
+                return null;
+
+            Transform[] children = root.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < children.Length; i++)
+            {
+                Transform child = children[i];
+                if (child != root &&
+                    child.name.IndexOf(namePart, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return child;
+                }
+            }
+
+            return null;
         }
 
         private void AdvanceCylinder()
