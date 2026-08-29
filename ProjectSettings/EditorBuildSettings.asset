@@ -15,6 +15,9 @@ EditorBuildSettings:
     path: Assets/Scenes/TitleScene.unity
     guid: 9f49251bbd681d7479c523cee3b27380
   - enabled: 1
+    path: Assets/Scenes/HideoutScene.unity
+    guid: 2c41eb1f2d1f09648917f5a7eea2c632
+  - enabled: 1
     path: Assets/Scenes/StorageScene.unity
     guid: c1bbd60679dd2f240985d5925613725b
   m_configObjects:
