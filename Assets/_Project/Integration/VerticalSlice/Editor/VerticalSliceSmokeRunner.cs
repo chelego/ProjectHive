@@ -65,6 +65,8 @@ namespace ProjectHive.Editor.Integration
                 float elapsed = Time.realtimeSinceStartup - enteredPlayModeAt;
                 if (!openingStarted && elapsed >= 1f)
                 {
+                    PrototypeEnemyActivator spawner = Object.FindFirstObjectByType<PrototypeEnemyActivator>();
+                    if (spawner != null && !spawner.SpawnComplete && elapsed < 30f) return;
                     ValidateInitialState();
                     StartGateOpening();
                     openingStarted = true;
@@ -81,7 +83,7 @@ namespace ProjectHive.Editor.Integration
                         throw new InvalidOperationException("Extraction completion did not end the raid successfully.");
 
                     Debug.Log(
-                        $"[VerticalSliceSmoke] PASS player=1, breckens=10, bunkers=6, " +
+                        $"[VerticalSliceSmoke] PASS player=1, breckens={Object.FindFirstObjectByType<PrototypeEnemyActivator>().ActivatedEnemyCount}, bunkers=6, " +
                         $"available={controller.AvailableGates.Count}, runtimeTicks={RuntimeCoordinator.Instance.RegisteredCount}, " +
                         $"result='{controller.ResultMessage}'");
                     Finish(0);
@@ -109,8 +111,14 @@ namespace ProjectHive.Editor.Integration
                 throw new InvalidOperationException($"Expected 2-3 available exits, found {controller.AvailableGates.Count}.");
 
             BreckenAI[] breckens = Object.FindObjectsByType<BreckenAI>(FindObjectsSortMode.None);
-            if (breckens.Length != 10)
-                throw new InvalidOperationException($"Expected 10 Breckens, found {breckens.Length}.");
+            PrototypeEnemyActivator activator = Object.FindFirstObjectByType<PrototypeEnemyActivator>();
+            if (activator == null || !activator.SpawnComplete || activator.ActivatedEnemyCount != activator.RequestedEnemyCount)
+                throw new InvalidOperationException("District spawning is incomplete.");
+            if (breckens.Length != activator.RequestedEnemyCount)
+                throw new InvalidOperationException($"Expected {activator.RequestedEnemyCount} Breckens, found {breckens.Length}.");
+            foreach (PrototypeSpawnDistrict district in activator.Districts)
+                if (!activator.DistrictSpawnCounts.TryGetValue(district.DistrictName, out int count) || count != district.Population)
+                    throw new InvalidOperationException($"{district.DistrictName}: district population is incomplete.");
             for (int i = 0; i < breckens.Length; i++)
             {
                 NavMeshAgent agent = breckens[i].GetComponent<NavMeshAgent>();
@@ -121,7 +129,7 @@ namespace ProjectHive.Editor.Integration
                 if (playerDelta.sqrMagnitude < 10f * 10f)
                     throw new InvalidOperationException($"{breckens[i].name} spawned too close to the player.");
             }
-            if (RuntimeCoordinator.Instance == null || RuntimeCoordinator.Instance.RegisteredCount < 10)
+            if (RuntimeCoordinator.Instance == null || RuntimeCoordinator.Instance.RegisteredCount < activator.RequestedEnemyCount)
                 throw new InvalidOperationException("Brecken runtime tick registration is incomplete.");
             if (controller.RaidClock == null || controller.RaidClock.ClockState.ElapsedSeconds <= 0f)
                 throw new InvalidOperationException("Raid clock is not progressing.");

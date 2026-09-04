@@ -1,0 +1,41 @@
+2026-09-05 버티컬슬라이스 업데이트
+
+브레켄 배치
+- 큰 도로와 기존 구역 바닥을 기준으로 7개 구역을 구성한다.
+- NorthWest, Central, NorthEast, West, East, SouthWest, School에 각각 10마리씩 총 70마리를 생성한다.
+- NavMesh 후보 위치를 무작위 선택하고 시작 플레이어와 최소 18m, 개체끼리 최소 3m 간격을 둔다.
+- 장애물 내부를 제외하고 AI 활성화를 프레임당 5마리씩 진행한다.
+- Hierarchy의 _BreckenSpawnDistricts 아래 각 구역 Population으로 수를 조절한다.
+- 도로·건물 배치 변경 뒤에는 후보 위치와 NavMesh를 재생성한다.
+
+LOD 및 충돌
+- 167개 LOD 그룹의 렌더러 283개 위치·회전을 대응하는 LOD0에 맞췄다.
+- 별도 LOD0가 없는 CBU 창문 56개와 LOD0 참조가 비어 있는 BE_04_BrickCourtyard 게이트 하위 렌더러 3개는 유지한다.
+- 음수 Local Scale 605개를 외형을 유지한 양수 Scale로 변환했다.
+- 자식 부품까지 1,205개를 조정하고 BoxCollider 및 MeshCollider를 맞췄다.
+- 변환 메시 26개는 Assets/_Project/Art/Environment/PositiveScaleMeshes에서 재사용한다.
+- UV, 재질, 정점 색상, 면 방향, 탄젠트 및 월드 정점 좌표를 비교했다.
+- 정점 위치 최대 오차는 약 0.016mm, 콜라이더 좌표는 약 0.031mm다.
+- PolyShape 편집 데이터를 유지하고 저장·재열기 후 메시와 UV 일치를 확인했다.
+
+손전등
+- 플레이어 카메라에 F키 토글 손전등을 연결했다.
+- 밝기 14, 범위 45m, 외곽 각도 62도, 내부 각도 38도다.
+- 색상 RGB는 0.82 / 0.90 / 1.00이며 부드러운 그림자를 사용한다.
+- 시작 상태는 꺼짐이다. 카메라를 따라 움직인다.
+- SceneBuilder 재생성에도 같은 손전등을 연결한다.
+
+검증 및 실행
+- 로컬 Unity 컴파일 오류와 Play Mode Console 오류 0개를 확인했다.
+- 시작 시 7개 구역에 70/70마리 생성되는 것을 확인했다.
+- 양수 스케일 변환 뒤 잔여 음수 Local Scale 0개를 확인했다.
+- 손전등 점등 및 토글 동작을 확인했다.
+- 시작 화면부터 실행: Scenes/PrototypeFrontEnd.unity.
+- 인게임만 실행: Scenes/VerticalSlice.unity.
+- VerticalSliceSmokeRunner는 명령행 테스트 전용이다. 완료 시 EditorApplication.Exit를 호출한다.
+- VerticalSlicePerformanceCheck는 에디터 측정 도구다. 초기 1080p 고정 시점 표본은 약 73FPS였으며, 손전등 추가와 최종 수정 이후의 대표 플레이/Windows 빌드 성능은 별도 측정한다.
+
+이번 업로드 범위
+- 버티컬슬라이스 씬, NavMesh, 스폰 코드, 관련 검사 코드, 공유 손전등 코드, 필수 변환 메시와 meta를 포함한다.
+- TerrainBlockout 원본 씬, 맵 편집 도구, 유료 에셋 팩 원본, 임시 백업·캡처는 별도로 유지한다.
+- 유료 에셋 팩이 설치되지 않은 환경에서는 기존 배경 모델·재질 일부가 누락될 수 있다.

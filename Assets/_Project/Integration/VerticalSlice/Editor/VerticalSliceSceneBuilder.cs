@@ -74,7 +74,8 @@ namespace ProjectHive.Editor.Integration
             int breckenAgentTypeId = GetBreckenAgentTypeId();
             NavMeshSurface surface = CreateAndBakeNavigation(targetScene, breckenAgentTypeId);
             BreckenAI[] breckens = CloneBreckens(targetScene, player.transform, null);
-            runtimeRoot.AddComponent<PrototypeEnemyActivator>().Configure(breckens, player.transform);
+            PrototypeSpawnDistrict[] districts = UrbanDistrictSpawnBuilder.Build(targetScene, breckenAgentTypeId);
+            runtimeRoot.AddComponent<PrototypeEnemyActivator>().Configure(breckens, player.transform, districts);
 
             EditorSceneManager.MarkSceneDirty(targetScene);
             EditorSceneManager.SaveScene(targetScene);
@@ -85,7 +86,7 @@ namespace ProjectHive.Editor.Integration
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
-            Debug.Log($"[VerticalSliceBuilder] Built {OutputScenePath}: player=1, breckens=3, bunkers={gates.Count}");
+            Debug.Log($"[VerticalSliceBuilder] Built {OutputScenePath}: player=1, breckenTemplates=3, districts={districts.Length}, population={districts.Sum(d => d.Population)}, bunkers={gates.Count}");
         }
 
         public static void BuildFromCommandLine()
@@ -126,6 +127,11 @@ namespace ProjectHive.Editor.Integration
                 clone.AddComponent<PlayerInteractor>();
             if (clone.GetComponent<Health>() == null)
                 clone.AddComponent<Health>();
+            Camera view = clone.GetComponentsInChildren<Camera>(true).FirstOrDefault(c => c.CompareTag("MainCamera"))
+                ?? clone.GetComponentInChildren<Camera>(true);
+            if (view == null)
+                throw new InvalidOperationException("The prototype player has no camera for its flashlight.");
+            FirstPersonFlashlight.CreateFor(view.transform);
             return motor;
         }
 
