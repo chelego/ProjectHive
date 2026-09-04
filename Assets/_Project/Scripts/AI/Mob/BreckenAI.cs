@@ -8,9 +8,9 @@ using ProjectHive.Core.Events;
 // IAssassinationStateProvider, IDamageable, DamageData
 using ProjectHive.Core.Contracts;
 using ProjectHive.Combat;
-using System;
 using ProjectHive.AI.Hive;
 using Random = UnityEngine.Random;
+using System.Collections.Generic;
 
 namespace ProjectHive.AI.Mob
 {
@@ -81,6 +81,27 @@ namespace ProjectHive.AI.Mob
         private float patrolSweepOffset; // 기준점으로부터 머리가 틀어진 각도, 기준은 도착한 순간 몸통의 정면
         private int patrolSweepPhase; // 0: 한쪽끝, 1: 반대쪽 끝
         private int patrolSweepSign = -1;
+        private Vector3 patrolSpawnPosition;
+        // 순찰 지점 하나, 위치와 그 자리에서의 트인 방향을 담는다
+        private struct PatrolPoint
+        {
+            public Vector3 Position;
+            public Vector3 LookDirection;
+        }
+        private PatrolPoint[] patrolPoints;
+        // 이번 사이클의 순찰 순서
+        private int[] patrolOrder;
+        private int patrolOrderIndex;
+        private Vector3 patrolLookDirection;
+        // 도달 가능 여부 검사용 버퍼
+        private NavMeshPath patrolPath;
+        // 후보를 모으는 중이면 non-null, 확정하면 다시 null로 돌린다
+        private List<Vector3> patrolCandidates;
+        // 다음 후보를 검사해도 되는 시각, 경로 요청 주기를 지키기 위한 것
+        private float nextPatrolCandidateTime;
+        // 후보를 몇 번 시도했는지, 갈 수 없는 지형에서 폭주하지 않게 막는다
+        private int patrolCandidateAttempts;
+
 
         [Header("State - Investigate")]
         // 지금 확인하러 가는 지점과 훑을 반경
@@ -105,7 +126,6 @@ namespace ProjectHive.AI.Mob
         // 탐색 반경 기준 계산을 위한, 마지막으로 플레이어를 목격한 시각
         private float lastKnownPlayerSightingTime;
 
-        private Vector3 patrolSpawnPosition;
 
         [SerializeField] private float alertness;
 
@@ -150,6 +170,7 @@ namespace ProjectHive.AI.Mob
             agent = GetComponent<NavMeshAgent>();
             health = GetComponent<Health>();
             investigatePath = new NavMeshPath();
+            patrolPath = new NavMeshPath();
         }
 
         public void RuntimeTick(in RuntimeTickContext context)
@@ -200,6 +221,9 @@ namespace ProjectHive.AI.Mob
                 lastVisualContactReportTime = context.CurrentTime;
             }
 
+            // 순찰 지점 후보는 경로 계산이 비싸므로 틱마다 하나씩만 모은다
+            if (patrolPoints == null) CollectPatrolCandidate(context);
+
             switch (currentState)
             {
                 case EnemyState.Idle: TickIdle(context); break;
@@ -236,6 +260,12 @@ namespace ProjectHive.AI.Mob
             patrolSweepOffset = 0f;
             patrolSweepPhase = 0;
             patrolSweepSign = -1;
+            patrolPoints = null;
+            patrolLookDirection = Vector3.zero;
+            // 풀에서 다시 꺼내면 수집도 처음부터
+            patrolCandidates = null;
+            nextPatrolCandidateTime = 0f;
+            patrolCandidateAttempts = 0;
 
             //chase reset
 
@@ -600,7 +630,7 @@ namespace ProjectHive.AI.Mob
                     patrolSweepOffset = 0f;
                     patrolSweepPhase = 0;
                     headTransform.localRotation = Quaternion.identity;
-                    lookPitch = 0f;
+                    patrolLookDirection = Vector3.zero;
                     break;
 
                 case EnemyState.Alert:
@@ -617,7 +647,7 @@ namespace ProjectHive.AI.Mob
                 case EnemyState.Search:
                     agent.updateRotation = true;
                     if (agent.isOnNavMesh) agent.ResetPath();
-                    agent.speed = settings.PatrolSpeed; // 일단 patrol 상태의 이동속도와 동일
+                    agent.speed = settings.SearchSpeed;
                     lookPitch = 0f;
 
                     // 플레이어를 놓쳤다는 사실을 하이브에게 1회 보고
@@ -689,6 +719,8 @@ namespace ProjectHive.AI.Mob
                 return;
             }
 
+            if (agent.pathPending) return;
+
             if (!agent.hasPath ||
                 agent.remainingDistance <= agent.stoppingDistance + settings.ArrivalDistanceThreshold)
             {
@@ -707,7 +739,9 @@ namespace ProjectHive.AI.Mob
             agent.ResetPath();
             agent.updateRotation = false; // 두리번거리기 구현, 몸통을 직접 돌린다
 
-            patrolSweepBaseYaw = transform.eulerAngles.y;
+            patrolSweepBaseYaw = patrolLookDirection.sqrMagnitude > 0.01f
+                ? Quaternion.LookRotation(patrolLookDirection).eulerAngles.y
+                : transform.eulerAngles.y;
             patrolSweepOffset = 0f;
             patrolSweepPhase = 0;
         }
@@ -728,8 +762,12 @@ namespace ProjectHive.AI.Mob
             float headOffset = Mathf.Clamp(
                 patrolSweepOffset - bodyOffset, -settings.HorizontalHeadTurnAngle, settings.HorizontalHeadTurnAngle);
 
-            // 몸통에 월드 기준 회전, 머리에 로컬 기준 회전
-            transform.rotation = Quaternion.Euler(0f, patrolSweepBaseYaw + bodyOffset, 0f);
+            // transform.rotation = Quaternion.Euler(0f, patrolSweepBaseYaw + bodyOffset, 0f);
+            // 트인 방향이 뒤쪽이면 목표 각도가 멀 수 있으므로 돌아가는 과정을 보여준다
+            float desiredYaw = patrolSweepBaseYaw + bodyOffset;
+            float steppedYaw = Mathf.MoveTowardsAngle(
+                transform.eulerAngles.y, desiredYaw, settings.BodyTurnSpeed * deltaTime);
+            transform.rotation = Quaternion.Euler(0f, steppedYaw, 0f);
             headTransform.localRotation = Quaternion.Euler(0f, headOffset, 0f);
 
             if (patrolSweepPhase == 0 && Mathf.Approximately(patrolSweepOffset, targetOffset))
@@ -755,24 +793,223 @@ namespace ProjectHive.AI.Mob
 
         private bool TryGetPatrolPoint(out Vector3 result)
         {
-            // 현재 스폰 지점 주위로 랜덤, 차후 순찰 지점 설정 필요
-            // 현재 평면을 가정하고 circle로 지점을 추출한다
-            // 현재 지점을 찾는데 실패하면 둘러보기를 1회 더 반복, 차후 수정 필요
+            // 아직 모으는 중이거나 하나도 못 뽑았다면 즉석에서 뽑는다
+            if (patrolPoints == null || patrolPoints.Length == 0)
+            {
+                patrolLookDirection = Vector3.zero;
+                return TryGetPointNearSpawn(out result);
+            }
+
+            // 한 바퀴 모두 돌았다면 순서를 섞는다
+            if (patrolOrderIndex >= patrolOrder.Length) ShufflePatrolOrder();
+
+            PatrolPoint point = patrolPoints[patrolOrder[patrolOrderIndex]];
+            patrolOrderIndex++;
+
+            patrolLookDirection = point.LookDirection;
+            result = point.Position;
+            return true;
+        }
+
+        /// <summary>
+        /// 순찰 지점을 뽑지 못한 경우 폴백
+        /// </summary>
+        private bool TryGetPointNearSpawn(out Vector3 result)
+        {
             Vector2 randomCircle = Random.insideUnitCircle * settings.PatrolRadius;
             Vector3 randomPoint = patrolSpawnPosition + new Vector3(randomCircle.x, 0f, randomCircle.y);
 
-            if (NavMesh.SamplePosition(
-                    randomPoint,
-                    out NavMeshHit hit,
-                    2f,
-                    NavMesh.AllAreas))
+            if (NavMesh.SamplePosition(randomPoint, out NavMeshHit hit, 2f, NavMesh.AllAreas) &&
+                agent.CalculatePath(hit.position, patrolPath) &&
+                patrolPath.status == NavMeshPathStatus.PathComplete)
             {
                 result = hit.position;
                 return true;
             }
 
-            result = patrolSpawnPosition;
+            result = hit.position;
             return false;
+        }
+
+        /// <summary>
+        /// 순찰 지점 후보를 틱마다 하나씩 모은다
+        /// 경로 요청이 비싸서 한 번에 몰면 프레임이 튄다
+        /// </summary>
+        private void CollectPatrolCandidate(in RuntimeTickContext context)
+        {
+            if (!agent.isOnNavMesh) return;
+
+            if (context.CurrentTime < nextPatrolCandidateTime) return;
+            nextPatrolCandidateTime = context.CurrentTime + settings.RequestPathTickInterval;
+
+            if (patrolCandidates == null)
+            {
+                patrolCandidates = new List<Vector3>(settings.PatrolPointCandidateCount);
+                patrolCandidateAttempts = 0;
+            }
+
+            patrolCandidateAttempts++;
+            TryAddPatrolCandidate();
+
+            // 목표만큼 모았거나 시도를 다 썼으면 확정한다
+            if (patrolCandidates.Count >= settings.PatrolPointCandidateCount ||
+                patrolCandidateAttempts >= settings.PatrolPointMaxAttempts)
+            {
+                FinalizePatrolPoints();
+            }
+        }
+
+        /// <summary>
+        /// 후보 하나를 검사해 조건을 만족하면 목록에 담는다
+        /// </summary>
+        private void TryAddPatrolCandidate()
+        {
+            Vector2 circle = Random.insideUnitCircle * settings.PatrolRadius;
+            Vector3 candidate = patrolSpawnPosition + new Vector3(circle.x, 0f, circle.y);
+
+            if (!NavMesh.SamplePosition(candidate, out NavMeshHit hit, 2f, NavMesh.AllAreas)) return;
+
+            // 지점이 뭉치면 제자리걸음이 된다
+            float spacingSqr = settings.PatrolPointSpacing * settings.PatrolPointSpacing;
+            for (int i = 0; i < patrolCandidates.Count; i++)
+            {
+                if ((patrolCandidates[i] - hit.position).sqrMagnitude < spacingSqr) return;
+            }
+
+            // 바닥이 있는 것과 갈 수 있는 것은 다르다
+            if (!agent.CalculatePath(hit.position, patrolPath) ||
+                patrolPath.status != NavMeshPathStatus.PathComplete) return;
+
+            patrolCandidates.Add(hit.position);
+        }
+
+        /// <summary>
+        /// 모은 후보 중 트인 자리부터 순찰 지점으로 확정한다
+        /// </summary>
+        private void FinalizePatrolPoints()
+        {
+            // 트인 자리일수록 높은 점수를 부여, 점수순으로 정렬
+            var candidates = patrolCandidates;
+            int count = candidates.Count;
+            var sortKey = new float[count];
+            var sorted = new int[count];
+            var lookDirections = new Vector3[count];
+            for (int i = 0; i < count; i++)
+            {
+                sortKey[i] = -MeasureOpenness(candidates[i], out lookDirections[i]);
+                sorted[i] = i;
+            }
+
+            System.Array.Sort(sortKey, sorted);
+
+            int take = Mathf.Min(settings.PatrolPointCount, count);
+            patrolPoints = new PatrolPoint[take];
+            for (int i = 0; i < take; i++)
+            {
+                patrolPoints[i].Position = candidates[sorted[i]];
+                patrolPoints[i].LookDirection = lookDirections[sorted[i]];
+            }
+
+            patrolOrder = new int[take];
+            for (int i = 0; i < take; i++) patrolOrder[i] = i;
+            patrolOrderIndex = take;
+
+            patrolCandidates = null;
+
+            // 하나도 뽑지 못했다면 확정 x
+            if (take == 0)
+            {
+                patrolPoints = null;
+                patrolCandidateAttempts = 0;
+            }
+
+        }
+
+
+        /// <summary>
+        /// 그 자리에 섰을 때 얼마나 넓게 보이는지를 재고, 가장 트인 방향을 반환
+        /// </summary>
+        /// <summary>
+        /// 그 자리에 섰을 때 얼마나 넓게 보이는지를 재고, 가장 트인 방향을 반환
+        /// 방향은 이웃한 세 갈래의 합으로 고른다, 좁은 틈 하나가 이기지 않도록
+        /// </summary>
+        private float MeasureOpenness(Vector3 point, out Vector3 bestDirection)
+        {
+            Vector3 eye = point + Vector3.up * settings.EyeHeight;
+            int rays = settings.PatrolPointOpennessRays;
+
+            // 방향별 거리를 먼저 모은다
+            var distances = new float[rays];
+            float total = 0f;
+            for (int i = 0; i < rays; i++)
+            {
+                float angle = i * (360f / rays) * Mathf.Deg2Rad;
+                Vector3 direction = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
+
+                distances[i] = Physics.Raycast(
+                    eye, direction, out RaycastHit hit,
+                    settings.SightDistance, settings.SightBlockMask)
+                    ? hit.distance
+                    : settings.SightDistance;
+
+                total += distances[i];
+            }
+
+            // 자기와 좌우 이웃의 합이 가장 큰 갈래를 고른다
+            // 동점이면 무작위로 골라 특정 방향으로 쏠리지 않게 한다
+            float bestScore = -1f;
+            int bestIndex = 0;
+            int tieCount = 0;
+            for (int i = 0; i < rays; i++)
+            {
+                float score = distances[(i - 1 + rays) % rays]
+                            + distances[i]
+                            + distances[(i + 1) % rays];
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestIndex = i;
+                    tieCount = 1;
+                }
+                else if (Mathf.Approximately(score, bestScore))
+                {
+                    tieCount++;
+                    // 동점 후보 중 하나를 균등하게 고른다
+                    if (Random.Range(0, tieCount) == 0) bestIndex = i;
+                }
+            }
+
+            float bestAngle = bestIndex * (360f / rays) * Mathf.Deg2Rad;
+            bestDirection = new Vector3(Mathf.Cos(bestAngle), 0f, Mathf.Sin(bestAngle));
+
+            return total / rays;
+        }
+
+        /// <summary>
+        /// patrolPoints에 대해 방문순서 섞기
+        /// </summary>
+        private void ShufflePatrolOrder()
+        {
+            // 직전 바퀴의 마지막 지점
+            int previousLastPoint = patrolOrder[patrolOrder.Length - 1];
+
+            for (int i = patrolOrder.Length - 1; i > 0; i--)
+            {
+                int j = Random.Range(0, i + 1);
+                int swap = patrolOrder[i];
+                patrolOrder[i] = patrolOrder[j];
+                patrolOrder[j] = swap;
+            }
+
+            if (patrolOrder.Length > 1 && patrolOrder[0] == previousLastPoint)
+            {
+                int swap = patrolOrder[0];
+                patrolOrder[0] = patrolOrder[1];
+                patrolOrder[1] = swap;
+            }
+
+            patrolOrderIndex = 0;
         }
 
         private void TickAlert(in RuntimeTickContext context)
@@ -1422,5 +1659,41 @@ namespace ProjectHive.AI.Mob
             }
 
         }
+
+        // 튜닝용 상태 표시, 머리 위에 현재 상태와 포기까지 남은 시간을 띄운다
+#if UNITY_EDITOR
+        private void OnGUI()
+        {
+            if (headTransform == null) return;
+
+            Camera cam = Camera.main;
+            if (cam == null) return;
+
+            // 가까운 개체만 그린다, 전부 그리면 화면이 라벨로 덮인다
+            if ((headTransform.position - cam.transform.position).sqrMagnitude > 40f * 40f) return;
+
+            Vector3 screen = cam.WorldToScreenPoint(headTransform.position + Vector3.up * 0.3f);
+            if (screen.z <= 0f) return;
+
+            string text = currentState.ToString();
+
+            // 추격을 포기하기까지 남은 시간
+            if (currentState == EnemyState.Search)
+            {
+                text += "  " + (alertness / settings.SearchAlertDecreaseSpeed).ToString("F1") + "s";
+            }
+            else if (currentState == EnemyState.Chase && !isPlayerVisible)
+            {
+                float left = settings.StuckDuration - (Time.time - lastKnownPlayerSightingTime);
+                text += "  " + Mathf.Max(0f, left).ToString("F1") + "s";
+            }
+
+            GUI.color = Color.yellow;
+            GUI.Label(
+                new Rect(screen.x - 50f, Screen.height - screen.y - 20f, 100f, 20f),
+                text);
+            GUI.color = Color.white;
+        }
+#endif
     }
 }
