@@ -33,6 +33,16 @@ namespace ProjectHive.AI.Mob
         [SerializeField] private Transform headTransform;
 
         private NavMeshAgent agent;
+        public string DiagnosticState => currentState.ToString();
+        public bool HasVisualContact => isPlayerVisible;
+        public Vector3 LastKnownTarget => lastKnownPlayerPosition;
+        public float DiagnosticAlertness => alertness;
+        public void ConfigureEncounter(Transform target)
+        {
+            playerTransform = target;
+            hiveUnitRegistry = FindFirstObjectByType<HiveUnitRegistry>();
+            hiveUnitRegistry?.Register(this);
+        }
         // 가장 짧은 감지 주기를 minimumInterval로 사용
         public float MinimumTickInterval => settings.PerceptionTickInterval;
 

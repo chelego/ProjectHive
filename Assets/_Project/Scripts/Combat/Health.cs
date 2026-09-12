@@ -21,6 +21,8 @@ namespace ProjectHive.Combat
         public float CurrentHealth => currentHealth;
         public float Normalized => maxHealth <= 0f ? 0f : currentHealth / maxHealth;
         public bool IsDead => isDead;
+        // Runtime-only diagnostic protection. Detection and attack attempts remain active.
+        public bool IsInvulnerable { get; set; }
 
         private void Awake()
         {
@@ -29,7 +31,7 @@ namespace ProjectHive.Combat
 
         public void ApplyDamage(in DamageData damage)
         {
-            if (isDead || damage.Amount <= 0f)
+            if (isDead || IsInvulnerable || damage.Amount <= 0f)
                 return;
 
             currentHealth = Mathf.Max(0f, currentHealth - damage.Amount);

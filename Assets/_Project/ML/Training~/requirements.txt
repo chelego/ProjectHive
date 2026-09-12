@@ -1,0 +1,4 @@
+# Match the project's existing Unity ML-Agents 4.0.x communicator (API 1.5).
+mlagents==1.1.0
+numpy==1.23.5
+onnx==1.15.0

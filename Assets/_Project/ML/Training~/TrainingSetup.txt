@@ -1,0 +1,26 @@
+HIVE BASIC TRAINING ENVIRONMENT
+
+Scene: Assets/_Project/Scenes/HiveTraining.unity (16 existing lightweight simulated arenas).
+Behavior: HiveDirector. Observation/action sizes stay in HiveTrainingAgent / HiveDecisionObservation.
+Config: Assets/_Project/ML/Configs/hive_ppo.yaml. PPO on CUDA.
+Python: 3.10.12; mlagents 1.1.0; torch 2.2.2+cu121 (existing verified environment).
+Fresh environment: install CUDA-enabled PyTorch 2.2.2 using the official cu121 wheel index,
+then pip install -r requirements.txt. No global Python or Unity package changes required.
+
+Check only:
+  ./start_training.ps1 -Python <path-to-venv-python> -CheckOnly
+Start explicitly:
+  ./start_training.ps1 -Python <path-to-venv-python> -RunId <unique-run-name>
+  Then open HiveTraining.unity and press Play.
+
+The new live encounters use the existing RuleBasedHivePolicy as an observable baseline.
+Bird alarms -> WildlifeAlarm / Environment -> HiveReportFactory -> Noise report.
+Spotter sightings -> SpotterContact. Occlusion -> LostTarget.
+Existing training randomization includes environmental noise, spotter contacts and lost targets.
+The training arena is a simplified director decision model, not the production city's physics.
+No production-map reward calibration or new trained policy is claimed by this setup.
+TrainingResults stays outside Assets and Git. No automatic training or ONNX replacement.
+
+Sources:
+https://docs.unity3d.com/Packages/com.unity.ml-agents@4.0/manual/Installation.html
+https://unity-technologies.github.io/ml-agents/Training-ML-Agents/

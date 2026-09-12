@@ -17,7 +17,7 @@ namespace ProjectHive.Gameplay.Raid
     public sealed class VerticalSliceRaidController : MonoBehaviour
     {
         [Header("Prototype raid")]
-        [SerializeField, Min(10f)] private float raidDurationSeconds = 180f;
+        [SerializeField, Min(10f)] private float raidDurationSeconds = 1800f;
         [SerializeField, Min(0.1f)] private float bunkerOpeningSeconds = 8f;
         [SerializeField, Range(1, 5)] private int minimumAvailableExits = 2;
         [SerializeField, Range(1, 5)] private int maximumAvailableExits = 3;

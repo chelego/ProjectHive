@@ -488026,7 +488026,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c41a31d4ff6b31a43acd59cee7ca9223, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ProjectHive.Gameplay.Raid.VerticalSliceRaidController
-  raidDurationSeconds: 180
+  raidDurationSeconds: 1800
   bunkerOpeningSeconds: 8
   minimumAvailableExits: 2
   maximumAvailableExits: 3
@@ -488053,7 +488053,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 32c2f16362be0ea41aa44329d755d1e1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ProjectHive.Core.Runtime.RaidClock
-  durationSeconds: 180
+  durationSeconds: 1800
   startWorldHour: 23
   endWorldHour: 5
 --- !u!4 &1905431195

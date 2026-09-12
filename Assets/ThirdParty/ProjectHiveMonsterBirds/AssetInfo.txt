@@ -1,0 +1,18 @@
+ProjectHive original prototype creature: Ash Raven
+
+Original model, rig, animation, procedural feather texture and synthesized alarm audio.
+Created for ProjectHive. No purchased or downloaded third-party art/audio is incorporated.
+Anatomy reference: Cornell Lab Common Raven identification photographs and flight silhouettes:
+https://www.allaboutbirds.org/guide/Common_Raven/id
+https://academy.allaboutbirds.org/crows-and-ravens/
+
+Mesh: 1,704 triangles / 974 vertices. Length approximately 0.9 m, standing height 0.67 m.
+One skinned mesh, 8 bones, 512x512 base-color texture, four URP materials.
+Feed and Flight loop clips; 3 original mono 24kHz alarm variations.
+Source~/ contains the editable Blender source and reproducible generator.
+Source~/ is ignored by Unity import, preserving a single active FBX model.
+The generic folded / flapping prototype animation is authored in the source rig.
+
+Runtime: Assets/_Project/Scripts/AI/Mob/MonsterBirdFlock.cs.
+Encounter configuration: Resources/HiveEncounters/RaidEncounterLayout.asset.
+The map's existing geometry, purchased assets, lighting profiles and navigation data are preserved.

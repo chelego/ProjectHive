@@ -79,13 +79,37 @@ namespace ProjectHive.Player
         private readonly Collider[] standCheckHits = new Collider[8];
         private readonly Collider[] parkourClearanceHits = new Collider[12];
         private bool lookInputLocked;
+        private bool developerFlight;
+        private bool collisionsBeforeFlight;
+        private Vector3 flightVelocity;
 
         public PlayerMoveState MoveState { get; private set; }
         public bool IsCrouching { get; private set; }
         public bool IsSprinting { get; private set; }
         public bool IsSliding => MoveState == PlayerMoveState.Slide;
         public bool IsParkouring => MoveState == PlayerMoveState.Vault || MoveState == PlayerMoveState.Mantle;
-        public Vector3 Velocity => controller != null ? controller.velocity : Vector3.zero;
+        public Vector3 Velocity => developerFlight ? flightVelocity : controller != null ? controller.velocity : Vector3.zero;
+        public bool DeveloperFlight => developerFlight;
+
+        public void SetDeveloperFlight(bool value)
+        {
+            if (developerFlight == value || controller == null) return;
+            if (value)
+            {
+                collisionsBeforeFlight = controller.detectCollisions;
+                // Mantling temporarily disables the controller. Cancel that phase before flying.
+                controller.enabled = true;
+                parkourIgnoresControllerCollision = false;
+            }
+            developerFlight = value;
+            controller.detectCollisions = value ? false : collisionsBeforeFlight;
+            horizontalVelocity = flightVelocity = Vector3.zero;
+            verticalVelocity = 0f;
+            slideTimeRemaining = 0f;
+            parkourElapsed = parkourDuration;
+            IsSprinting = IsCrouching = crouchHeld = false;
+            SetMoveState(PlayerMoveState.Airborne);
+        }
         public PlayerLocomotionState LocomotionState => ToLocomotionState(MoveState);
         public event Action<LocomotionStateChange> LocomotionStateChanged;
 
@@ -135,6 +159,7 @@ namespace ProjectHive.Player
 
         private void OnDisable()
         {
+            SetDeveloperFlight(false);
             if (controller != null && !controller.enabled)
                 controller.enabled = true;
 
@@ -148,6 +173,20 @@ namespace ProjectHive.Player
         private void Update()
         {
             UpdateLook();
+            if (developerFlight)
+            {
+                Vector2 input = ReadMoveInput();
+                Keyboard keyboard = Keyboard.current;
+                float up = keyboard != null ? (keyboard.spaceKey.isPressed ? 1f : 0f) -
+                    (keyboard.leftCtrlKey.isPressed ? 1f : 0f) : 0f;
+                IsSprinting = keyboard != null && keyboard.leftShiftKey.isPressed;
+                Vector3 direction = transform.right * input.x +
+                    (cameraRoot != null ? cameraRoot.forward : transform.forward) * input.y + Vector3.up * up;
+                flightVelocity = Vector3.ClampMagnitude(direction, 1f) * (IsSprinting ? 26f : 10f);
+                transform.position += flightVelocity * Time.deltaTime;
+                Physics.SyncTransforms();
+                return;
+            }
             UpdateMovement();
             UpdateCrouchHeight();
         }

@@ -47,3 +47,10 @@ Thumbs.db
 *.docx
 *.pdf
 Docs/
+
+# Local Hive training runs and optional project-local Python environment.
+/TrainingResults/
+/.venv-hive/
+/Assets/ML-Agents/Timers/
+/Assets/ML-Agents/Timers.meta
+/Assets/ML-Agents.meta
